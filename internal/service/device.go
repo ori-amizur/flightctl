@@ -23,7 +23,7 @@ func (h *ServiceHandler) CreateDevice(ctx context.Context, request server.Create
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
-	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.taskManager.DeviceUpdatedCallback)
+	result, err := h.store.Device().Create(ctx, orgId, request.Body, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.CreateDevice201JSONResponse(*result), nil
@@ -78,7 +78,7 @@ func (h *ServiceHandler) ListDevices(ctx context.Context, request server.ListDev
 func (h *ServiceHandler) DeleteDevices(ctx context.Context, request server.DeleteDevicesRequestObject) (server.DeleteDevicesResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().DeleteAll(ctx, orgId, h.taskManager.AllDevicesDeletedCallback)
+	err := h.store.Device().DeleteAll(ctx, orgId, h.callbackManager.AllDevicesDeletedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevices200JSONResponse{}, nil
@@ -116,7 +116,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 	request.Body.Status = nil
 	NilOutManagedObjectMetaProperties(&request.Body.Metadata)
 
-	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.taskManager.DeviceUpdatedCallback)
+	result, created, err := h.store.Device().CreateOrUpdate(ctx, orgId, request.Body, nil, true, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		if created {
@@ -141,7 +141,7 @@ func (h *ServiceHandler) ReplaceDevice(ctx context.Context, request server.Repla
 func (h *ServiceHandler) DeleteDevice(ctx context.Context, request server.DeleteDeviceRequestObject) (server.DeleteDeviceResponseObject, error) {
 	orgId := store.NullOrgId
 
-	err := h.store.Device().Delete(ctx, orgId, request.Name, h.taskManager.DeviceUpdatedCallback)
+	err := h.store.Device().Delete(ctx, orgId, request.Name, h.callbackManager.DeviceUpdatedCallback)
 	switch err {
 	case nil:
 		return server.DeleteDevice200JSONResponse{}, nil

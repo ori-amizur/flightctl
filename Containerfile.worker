@@ -1,0 +1,5 @@
+FROM flightctl-base:latest as build
+FROM registry.access.redhat.com/ubi9/ubi-micro
+WORKDIR /app
+COPY --from=build /app/bin/flightctl-worker .
+CMD ./flightctl-worker

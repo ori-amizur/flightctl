@@ -1,0 +1,31 @@
+{{ if .Values.flightctl.periodic.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flightctl-periodic
+  namespace: {{ .Values.flightctl.periodic.namespace }}
+spec:
+  schedule: "*/2 * * * *"  # This means the job will run every two minute
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: periodic
+            image: {{ .Values.flightctl.periodic.image }}
+            imagePullPolicy: {{ .Values.flightctl.periodic.imagePullPolicy }}
+            env:
+              - name: HOME
+                value: "/root"
+            volumeMounts:
+              - mountPath: /root/.flightctl/config.yaml
+                name: flightctl-config
+                subPath: config.yaml
+                readOnly: true
+          volumes:
+            - name: flightctl-config
+              configMap:
+                name: flightctl-config
+          restartPolicy: Never
+{{ end }}

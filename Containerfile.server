@@ -1,18 +1,4 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.20 as build
-WORKDIR /app
-COPY ./api api
-COPY ./cmd cmd
-COPY ./deploy deploy
-COPY ./hack hack
-COPY ./internal internal
-COPY ./go.* .
-COPY ./pkg pkg
-COPY ./test test
-COPY ./Makefile .
-
-USER 0
-RUN make build
-
+FROM flightctl-base:latest as build
 FROM registry.access.redhat.com/ubi9/ubi-minimal as certs
 RUN microdnf update --nodocs -y  && microdnf install ca-certificates --nodocs -y
 

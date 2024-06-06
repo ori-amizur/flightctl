@@ -18,6 +18,27 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+func fleetValidate(ctx context.Context, resourceRef *ResourceReference, store store.Store, callbackManager CallbackManager, log logrus.FieldLogger) error {
+	logic := NewFleetValidateLogic(callbackManager, log, store, *resourceRef)
+
+	switch {
+	case resourceRef.Op == FleetValidateOpUpdate && resourceRef.Kind == model.FleetKind:
+		fleet, err := store.Fleet().Get(ctx, resourceRef.OrgID, resourceRef.Name)
+		if err != nil {
+			log.Errorf("fetching fleet while validating: %v", err)
+			return err
+		}
+		err = logic.CreateNewTemplateVersionIfFleetValid(ctx, fleet)
+		if err != nil {
+			log.Errorf("failed validating fleet %s/%s: %v", resourceRef.OrgID, resourceRef.Name, err)
+		}
+		return err
+	default:
+		log.Errorf("FleetValidate called with unexpected kind %s and op %s", resourceRef.Kind, resourceRef.Op)
+	}
+	return nil
+}
+
 func FleetValidate(taskManager TaskManager) {
 	for {
 		select {
@@ -49,15 +70,15 @@ func FleetValidate(taskManager TaskManager) {
 }
 
 type FleetValidateLogic struct {
-	taskManager TaskManager
-	log         logrus.FieldLogger
-	store       store.Store
-	resourceRef ResourceReference
-	repoNames   []string
+	callbackManager CallbackManager
+	log             logrus.FieldLogger
+	store           store.Store
+	resourceRef     ResourceReference
+	repoNames       []string
 }
 
-func NewFleetValidateLogic(taskManager TaskManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) FleetValidateLogic {
-	return FleetValidateLogic{taskManager: taskManager, log: log, store: store, resourceRef: resourceRef}
+func NewFleetValidateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, resourceRef ResourceReference) FleetValidateLogic {
+	return FleetValidateLogic{callbackManager: callbackManager, log: log, store: store, resourceRef: resourceRef}
 }
 
 func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Context, fleet *api.Fleet) error {
@@ -82,7 +103,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		Spec: api.TemplateVersionSpec{Fleet: *fleet.Metadata.Name},
 	}
 
-	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.taskManager.TemplateVersionCreatedCallback)
+	tv, err := t.store.TemplateVersion().Create(ctx, t.resourceRef.OrgID, &templateVersion, t.callbackManager.TemplateVersionCreatedCallback)
 	if err != nil {
 		return fmt.Errorf("creating templateVersion for valid fleet: %w", err)
 	}

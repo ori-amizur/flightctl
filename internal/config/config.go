@@ -15,8 +15,9 @@ const (
 )
 
 type Config struct {
-	Database *dbConfig  `json:"database,omitempty"`
-	Service  *svcConfig `json:"service,omitempty"`
+	Database *dbConfig    `json:"database,omitempty"`
+	Service  *svcConfig   `json:"service,omitempty"`
+	Queue    *queueConfig `json:"queue,omitempty"`
 }
 
 type dbConfig struct {
@@ -38,6 +39,11 @@ type svcConfig struct {
 	SrvKeyFile  string   `json:"srvKeyFile,omitempty"`
 	AltNames    []string `json:"altNames,omitempty"`
 	LogLevel    string   `json:"logLevel,omitempty"`
+}
+
+type queueConfig struct {
+	AmqpURL       string `json:"amqpUrl,omitempty"`
+	ManagementURL string `json:"managementUrl,omitempty"`
 }
 
 func ConfigDir() string {
@@ -71,6 +77,10 @@ func NewDefault() *Config {
 			CertStore: CertificateDir(),
 			BaseUrl:   "https://localhost:3333",
 			LogLevel:  "info",
+		},
+		Queue: &queueConfig{
+			AmqpURL:       "http://localhost:5672",
+			ManagementURL: "http://localhost:15672",
 		},
 	}
 	return c

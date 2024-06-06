@@ -40,12 +40,38 @@ build: bin
 	go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/...
 
 # rebuild container only on source changes
-bin/.flightctl-server-container: bin Containerfile go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+bin/.flightctl-base-container: bin Containerfile.base go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
 	mkdir -p $${HOME}/go/flightctl-go-cache
-	podman build -f Containerfile -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-server:latest
+	podman build -f Containerfile.base -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-base:latest
+	touch bin/.flightctl-base-container
+
+bin/.flightctl-server-container: bin Containerfile.server go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+	mkdir -p $${HOME}/go/flightctl-go-cache
+	podman build -f Containerfile.server -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-server:latest
 	touch bin/.flightctl-server-container
 
+bin/.flightctl-api-container: bin bin/.flightctl-base-container Containerfile.api go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+	mkdir -p $${HOME}/go/flightctl-go-cache
+	podman build -f Containerfile.api -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-api:latest
+	touch bin/.flightctl-api-container
+
+bin/.flightctl-worker-container: bin bin/.flightctl-base-container Containerfile.worker go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+	mkdir -p $${HOME}/go/flightctl-go-cache
+	podman build -f Containerfile.worker -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-worker:latest
+	touch bin/.flightctl-worker-container
+
+bin/.flightctl-periodic-container: bin bin/.flightctl-base-container Containerfile.periodic go.mod go.sum $(shell find ./ -name "*.go" -not -path "./bin/*" -not -path "./packaging/*")
+	mkdir -p $${HOME}/go/flightctl-go-cache
+	podman build -f Containerfile.periodic -v $${HOME}/go/flightctl-go-cache:/opt/app-root/src/go:Z -t flightctl-periodic:latest
+	touch bin/.flightctl-periodic-container
+
 flightctl-server-container: bin/.flightctl-server-container
+
+flightctl-api-container: bin/.flightctl-api-container
+
+flightctl-worker-container: bin/.flightctl-worker-container
+
+flightctl-periodic-container: bin/.flightctl-periodic-container
 
 bin:
 	mkdir -p bin
@@ -94,7 +120,7 @@ clean: clean-agent-vm clean-e2e-agent-images
 	- rm -f -r obj-*-linux-gnu
 	- rm -f -r debian
 
-.PHONY: tools flightctl-server-container
+.PHONY: tools flightctl-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
 tools: $(GOBIN)/golangci-lint
 
 $(GOBIN)/golangci-lint:
