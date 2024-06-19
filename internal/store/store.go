@@ -34,6 +34,7 @@ type DataStore struct {
 	templateVersion   TemplateVersion
 	repository        Repository
 	resourceSync      ResourceSync
+	log               logrus.FieldLogger
 
 	db *gorm.DB
 }
@@ -47,6 +48,7 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		repository:        NewRepository(db, log),
 		resourceSync:      NewResourceSync(db, log),
 		db:                db,
+		log:               log,
 	}
 }
 
@@ -75,6 +77,14 @@ func (s *DataStore) ResourceSync() ResourceSync {
 }
 
 func (s *DataStore) InitialMigration() error {
+	if s.db.Dialector.Name() == "postgres" && s.db.Dialector.Migrator(s.db).CurrentDatabase() == "flightctl" {
+		return newPostgresMigrator(s.db, s.initialMigration, s.log).performMigrate()
+	} else {
+		return s.initialMigration()
+	}
+}
+
+func (s *DataStore) initialMigration() error {
 	if err := s.Device().InitialMigration(); err != nil {
 		return err
 	}
