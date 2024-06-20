@@ -13,6 +13,13 @@ deploy-helm: git-server-container flightctl-server-container
 	test/scripts/install_helm.sh
 	test/scripts/deploy_with_helm.sh
 
+deploy-with-amqp: cluster deploy-helm-with-amqp prepare-agent-config
+
+deploy-helm-with-amqp: git-server-container flightctl-api-container flightctl-worker-container flightctl-periodic-container
+	kubectl config set-context kind-kind
+	test/scripts/install_helm.sh
+	test/scripts/deploy_for_amqp.sh
+
 prepare-agent-config:
 	test/scripts/prepare_agent_config.sh
 
