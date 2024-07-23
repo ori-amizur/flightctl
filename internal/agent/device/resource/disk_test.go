@@ -92,7 +92,7 @@ func TestDiskMonitor(t *testing.T) {
 	}, retryTimeout, retryInterval, "alert add")
 }
 
-// getRWMountPoint returns the first rw mount point.
+// getRWMountPoint returns the first rw mount point, avoiding non-filesystem mount points.
 func getRWMountPoint() (string, error) {
 	file, err := os.Open("/proc/mounts")
 	if err != nil {
@@ -107,9 +107,15 @@ func getRWMountPoint() (string, error) {
 			continue
 		}
 		mountPoint := fields[1]
+		fsType := fields[2]
 		options := fields[3]
 
-		// use first rw
+		// skip non-filesystem mount points
+		if fsType == "proc" || fsType == "sysfs" || fsType == "devpts" || fsType == "tmpfs" || fsType == "cgroup" {
+			continue
+		}
+
+		// Use first rw
 		if strings.Contains(options, "rw") {
 			var statfs unix.Statfs_t
 			if err := unix.Statfs(mountPoint, &statfs); err != nil {
