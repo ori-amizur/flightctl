@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/agent/device/action"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -26,6 +27,7 @@ type Agent struct {
 	osImageController  *OSImageController
 	resourceController *resource.Controller
 	consoleController  *ConsoleController
+	actionController   *action.Controller
 
 	fetchSpecInterval   util.Duration
 	fetchStatusInterval util.Duration
@@ -45,6 +47,7 @@ func NewAgent(
 	osImageController *OSImageController,
 	resourceController *resource.Controller,
 	consoleController *ConsoleController,
+	actionController *action.Controller,
 	log *log.PrefixLogger,
 ) *Agent {
 	return &Agent{
@@ -58,6 +61,7 @@ func NewAgent(
 		osImageController:   osImageController,
 		resourceController:  resourceController,
 		consoleController:   consoleController,
+		actionController:    actionController,
 		log:                 log,
 	}
 }
@@ -148,6 +152,10 @@ func (a *Agent) syncDevice(ctx context.Context) (bool, error) {
 	}
 
 	if err := a.resourceController.Sync(ctx, &desired); err != nil {
+		return false, err
+	}
+
+	if err := a.actionController.Sync(ctx, &desired); err != nil {
 		return false, err
 	}
 
