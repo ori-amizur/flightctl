@@ -435,7 +435,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Getting first rendered config
 			renderedConfig, err := devStore.GetRendered(ctx, orgId, "dev", nil, "")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("this is the first config"))
+			Expect(*renderedConfig.Config.Data).To(Equal("this is the first config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))
 			Expect(renderedConfig.RenderedVersion).To(Equal("1"))
 
@@ -451,7 +451,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Passing previous renderedVersion
 			renderedConfig, err = devStore.GetRendered(ctx, orgId, "dev", util.StrToPtr("1"), "")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(*renderedConfig.Config).To(Equal("this is the second config"))
+			Expect(*renderedConfig.Config.Data).To(Equal("this is the second config"))
 			Expect(renderedConfig.Os.Image).To(Equal("os"))
 			Expect(renderedConfig.RenderedVersion).To(Equal("2"))
 		})

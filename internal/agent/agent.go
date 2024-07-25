@@ -15,7 +15,6 @@ import (
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device"
-	"github.com/flightctl/flightctl/internal/agent/device/action"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -173,26 +172,21 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create action manager
-	actionManager, err := action.NewManager(a.log)
-	if err != nil {
-		return err
-	}
-
-	// create action controller
-	actionController := action.NewController(
-		actionManager,
-		a.log,
-	)
-
 	// create resource controller
 	resourceController := resource.NewController(
 		a.log,
 		resourceManager,
 	)
 
+	// create config hook manager
+	configHookManager, err := config.NewHookManager(a.log)
+	if err != nil {
+		return err
+	}
+
 	// create config controller
 	configController := config.NewController(
+		configHookManager,
 		deviceWriter,
 		a.log,
 	)
@@ -223,11 +217,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		osImageController,
 		resourceController,
 		consoleController,
-		actionController,
 		a.log,
 	)
 
-	go actionManager.Run(ctx)
+	go configHookManager.Run(ctx)
 	go resourceManager.Run(ctx)
 
 	return agent.Run(ctx)
