@@ -51,6 +51,16 @@ const (
 	TemplateVersionValid       ConditionType = "Valid"
 )
 
+// Defines values for ConfigHookActionSystemdAction.
+const (
+	ConfigHookActionSystemdDisable ConfigHookActionSystemdAction = "Disable"
+	ConfigHookActionSystemdEnable  ConfigHookActionSystemdAction = "Enable"
+	ConfigHookActionSystemdReload  ConfigHookActionSystemdAction = "Reload"
+	ConfigHookActionSystemdRestart ConfigHookActionSystemdAction = "Restart"
+	ConfigHookActionSystemdStart   ConfigHookActionSystemdAction = "Start"
+	ConfigHookActionSystemdStop    ConfigHookActionSystemdAction = "Stop"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
@@ -84,6 +94,15 @@ const (
 	DeviceUpdatedStatusUnknown   DeviceUpdatedStatusType = "Unknown"
 	DeviceUpdatedStatusUpToDate  DeviceUpdatedStatusType = "UpToDate"
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
+)
+
+// Defines values for FileOperationOperation.
+const (
+	FileOperationChangeOwner FileOperationOperation = "ChangeOwner"
+	FileOperationCreate      FileOperationOperation = "Create"
+	FileOperationDelete      FileOperationOperation = "Delete"
+	FileOperationRemove      FileOperationOperation = "Remove"
+	FileOperationUpdate      FileOperationOperation = "Update"
 )
 
 // Defines values for PatchRequestOp.
@@ -166,6 +185,35 @@ type ConditionStatus string
 // ConditionType defines model for ConditionType.
 type ConditionType string
 
+// ConfigHookAction An action to perform on configuration changes, either a systemd action or an executable action.
+type ConfigHookAction struct {
+	union json.RawMessage
+}
+
+// ConfigHookActionExecutable defines model for ConfigHookActionExecutable.
+type ConfigHookActionExecutable struct {
+	// FilePath The file path of the executable to be run.
+	FilePath string `json:"filePath"`
+
+	// Params A list of parameters to be passed to the executable.
+	Params []string `json:"params"`
+
+	// WorkingDirectory The directory in which the executable will run.
+	WorkingDirectory string `json:"workingDirectory"`
+}
+
+// ConfigHookActionSystemd defines model for ConfigHookActionSystemd.
+type ConfigHookActionSystemd struct {
+	// Action The systemd action to perform on the specified unit.
+	Action *ConfigHookActionSystemdAction `json:"action,omitempty"`
+
+	// UnitName The name of the systemd unit to act on.
+	UnitName *string `json:"unitName,omitempty"`
+}
+
+// ConfigHookActionSystemdAction The systemd action to perform on the specified unit.
+type ConfigHookActionSystemdAction string
+
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
 	// AlertRules Array of alert rules. Only one alert per severity is allowed.
@@ -197,6 +245,26 @@ type DeviceApplicationsStatus struct {
 	// Data Map of system application statuses.
 	Data    map[string]ApplicationStatus `json:"data"`
 	Summary ApplicationsSummaryStatus    `json:"summary"`
+}
+
+// DeviceConfigHook defines model for DeviceConfigHook.
+type DeviceConfigHook struct {
+	Actions        []ConfigHookAction `json:"actions"`
+	Description    string             `json:"description"`
+	FileOperations []FileOperation    `json:"fileOperations"`
+
+	// FileWatchPath The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
+	FileWatchPath string `json:"fileWatchPath"`
+	Name          string `json:"name"`
+}
+
+// DeviceConfigSpec defines model for DeviceConfigSpec.
+type DeviceConfigSpec struct {
+	// Data The configuration data.
+	Data *string `json:"data,omitempty"`
+
+	// Hooks A list of hooks to execute based on configuration changes.
+	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
 }
 
 // DeviceConfigStatus defines model for DeviceConfigStatus.
@@ -424,6 +492,15 @@ type Error struct {
 	Message string `json:"message"`
 }
 
+// FileOperation defines model for FileOperation.
+type FileOperation struct {
+	// Operation The type of operation that was observed on the file.
+	Operation *FileOperationOperation `json:"operation,omitempty"`
+}
+
+// FileOperationOperation The type of operation that was observed on the file.
+type FileOperationOperation string
+
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
@@ -629,8 +706,8 @@ type PatchRequestOp string
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *string        `json:"config,omitempty"`
-	Console    *DeviceConsole `json:"console,omitempty"`
+	Config     *DeviceConfigSpec `json:"config,omitempty"`
+	Console    *DeviceConsole    `json:"console,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -1021,6 +1098,68 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
+
+// AsConfigHookActionSystemd returns the union data inside the ConfigHookAction as a ConfigHookActionSystemd
+func (t ConfigHookAction) AsConfigHookActionSystemd() (ConfigHookActionSystemd, error) {
+	var body ConfigHookActionSystemd
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfigHookActionSystemd overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionSystemd
+func (t *ConfigHookAction) FromConfigHookActionSystemd(v ConfigHookActionSystemd) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfigHookActionSystemd performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionSystemd
+func (t *ConfigHookAction) MergeConfigHookActionSystemd(v ConfigHookActionSystemd) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsConfigHookActionExecutable returns the union data inside the ConfigHookAction as a ConfigHookActionExecutable
+func (t ConfigHookAction) AsConfigHookActionExecutable() (ConfigHookActionExecutable, error) {
+	var body ConfigHookActionExecutable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfigHookActionExecutable overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionExecutable
+func (t *ConfigHookAction) FromConfigHookActionExecutable(v ConfigHookActionExecutable) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfigHookActionExecutable performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionExecutable
+func (t *ConfigHookAction) MergeConfigHookActionExecutable(v ConfigHookActionExecutable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConfigHookAction) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConfigHookAction) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
 func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {

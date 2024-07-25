@@ -35,7 +35,7 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 		return nil
 	}
 
-	desiredConfigRaw := []byte(*desired.Config)
+	desiredConfigRaw := []byte(*desired.Config.Data)
 	ignitionConfig, err := ParseAndConvertConfig(desiredConfigRaw)
 	if err != nil {
 		return fmt.Errorf("parsing and converting config failed: %w", err)

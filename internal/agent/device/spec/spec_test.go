@@ -112,7 +112,9 @@ func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
 		mockRenderedVersion := "mockRenderedVersion"
 		resp := v1alpha1.RenderedDeviceSpec{
 			RenderedVersion: mockRenderedVersion,
-			Config:          util.StrToPtr("ignitionConfig"),
+			Config: &v1alpha1.DeviceConfigSpec{
+				Data: util.StrToPtr("ignitionConfig"),
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")

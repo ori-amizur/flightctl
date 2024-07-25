@@ -162,7 +162,9 @@ var _ = Describe("Calling osimages Sync", func() {
 			Os: &v1alpha1.DeviceOSSpec{
 				Image: "image",
 			},
-			Config:          util.StrToPtr("config stuff"),
+			Config: &v1alpha1.DeviceConfigSpec{
+				Data: util.StrToPtr("config stuff"),
+			},
 			RenderedVersion: "1",
 		}
 		defaultRenderedData, err = json.Marshal(renderedConfig)
