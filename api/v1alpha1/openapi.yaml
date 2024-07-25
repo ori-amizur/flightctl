@@ -2206,29 +2206,39 @@ components:
         - actions
         - fileWatchPath
     FileOperation:
-      type: object
-      properties:
-        operation:
-          type: string
-          description: 'The type of operation that was observed on the file.'
-          enum:
-            - "Create"
-            - "Remove"
-            - "Update"
-            - "Delete"
-            - "ChangeOwner"
-          x-enum-varnames:
-            - "FileOperationCreate"
-            - "FileOperationRemove"
-            - "FileOperationUpdate"
-            - "FileOperationDelete"
-            - "FileOperationChangeOwner"
+      type: string
+      description: 'The type of operation that was observed on the file.'
+      enum:
+        - "Create"
+        - "Remove"
+        - "Update"
+        - "Delete"
+        - "Rename"
+        - "ChangePermissions"
+      x-enum-varnames:
+        - "FileOperationCreate"
+        - "FileOperationRemove"
+        - "FileOperationUpdate"
+        - "FileOperationDelete"
+        - "FileOperationRename"
+        - "FileOperationChangePermissions"
     ConfigHookAction:
       type: object
+      properties:
+        configType:
+          type: string
+          description: 'The type of configuration action to perform.'
+      required:
+        - configType
+      discriminator:
+        propertyName: configType
+        mapping:
+          Systemd: '#/components/schemas/ConfigHookActionSystemd'
+          Executable: '#/components/schemas/ConfigHookActionExecutable'
+      description: 'An action to perform on configuration changes, either a systemd action or an executable action.'
       oneOf:
         - $ref: '#/components/schemas/ConfigHookActionSystemd'
         - $ref: '#/components/schemas/ConfigHookActionExecutable'
-      description: 'An action to perform on configuration changes, either a systemd action or an executable action.'
     ConfigHookActionSystemd:
       type: object
       properties:
@@ -2258,14 +2268,14 @@ components:
     ConfigHookActionExecutable:
       type: object
       properties:
-        filePath:
+        executablePath:
           type: string
           description: 'The file path of the executable to be run.'
-        params:
+        executableArgs:
           type: array
           items:
             type: string
-          description: 'A list of parameters to be passed to the executable.'
+          description: 'A list of arguments to be passed to the executable.'
         workingDirectory:
           type: string
           description: 'The directory in which the executable will run.'

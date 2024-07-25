@@ -179,7 +179,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// create config hook manager
-	configHookManager, err := config.NewHookManager(a.log)
+	configHookManager, err := config.NewHookManager(a.log, executer)
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -96,13 +97,14 @@ const (
 	DeviceUpdatedStatusUpdating  DeviceUpdatedStatusType = "Updating"
 )
 
-// Defines values for FileOperationOperation.
+// Defines values for FileOperation.
 const (
-	FileOperationChangeOwner FileOperationOperation = "ChangeOwner"
-	FileOperationCreate      FileOperationOperation = "Create"
-	FileOperationDelete      FileOperationOperation = "Delete"
-	FileOperationRemove      FileOperationOperation = "Remove"
-	FileOperationUpdate      FileOperationOperation = "Update"
+	FileOperationChangePermissions FileOperation = "ChangePermissions"
+	FileOperationCreate            FileOperation = "Create"
+	FileOperationDelete            FileOperation = "Delete"
+	FileOperationRemove            FileOperation = "Remove"
+	FileOperationRename            FileOperation = "Rename"
+	FileOperationUpdate            FileOperation = "Update"
 )
 
 // Defines values for PatchRequestOp.
@@ -187,16 +189,18 @@ type ConditionType string
 
 // ConfigHookAction An action to perform on configuration changes, either a systemd action or an executable action.
 type ConfigHookAction struct {
-	union json.RawMessage
+	// ConfigType The type of configuration action to perform.
+	ConfigType string `json:"configType"`
+	union      json.RawMessage
 }
 
 // ConfigHookActionExecutable defines model for ConfigHookActionExecutable.
 type ConfigHookActionExecutable struct {
-	// FilePath The file path of the executable to be run.
-	FilePath string `json:"filePath"`
+	// ExecutableArgs A list of arguments to be passed to the executable.
+	ExecutableArgs *[]string `json:"executableArgs,omitempty"`
 
-	// Params A list of parameters to be passed to the executable.
-	Params []string `json:"params"`
+	// ExecutablePath The file path of the executable to be run.
+	ExecutablePath *string `json:"executablePath,omitempty"`
 
 	// WorkingDirectory The directory in which the executable will run.
 	WorkingDirectory string `json:"workingDirectory"`
@@ -492,14 +496,8 @@ type Error struct {
 	Message string `json:"message"`
 }
 
-// FileOperation defines model for FileOperation.
-type FileOperation struct {
-	// Operation The type of operation that was observed on the file.
-	Operation *FileOperationOperation `json:"operation,omitempty"`
-}
-
-// FileOperationOperation The type of operation that was observed on the file.
-type FileOperationOperation string
+// FileOperation The type of operation that was observed on the file.
+type FileOperation string
 
 // Fleet Fleet represents a set of devices.
 type Fleet struct {
@@ -1108,6 +1106,8 @@ func (t ConfigHookAction) AsConfigHookActionSystemd() (ConfigHookActionSystemd, 
 
 // FromConfigHookActionSystemd overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionSystemd
 func (t *ConfigHookAction) FromConfigHookActionSystemd(v ConfigHookActionSystemd) error {
+	t.ConfigType = "Systemd"
+
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -1115,6 +1115,8 @@ func (t *ConfigHookAction) FromConfigHookActionSystemd(v ConfigHookActionSystemd
 
 // MergeConfigHookActionSystemd performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionSystemd
 func (t *ConfigHookAction) MergeConfigHookActionSystemd(v ConfigHookActionSystemd) error {
+	t.ConfigType = "Systemd"
+
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1134,6 +1136,8 @@ func (t ConfigHookAction) AsConfigHookActionExecutable() (ConfigHookActionExecut
 
 // FromConfigHookActionExecutable overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionExecutable
 func (t *ConfigHookAction) FromConfigHookActionExecutable(v ConfigHookActionExecutable) error {
+	t.ConfigType = "Executable"
+
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -1141,6 +1145,8 @@ func (t *ConfigHookAction) FromConfigHookActionExecutable(v ConfigHookActionExec
 
 // MergeConfigHookActionExecutable performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionExecutable
 func (t *ConfigHookAction) MergeConfigHookActionExecutable(v ConfigHookActionExecutable) error {
+	t.ConfigType = "Executable"
+
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1151,13 +1157,69 @@ func (t *ConfigHookAction) MergeConfigHookActionExecutable(v ConfigHookActionExe
 	return err
 }
 
+func (t ConfigHookAction) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"configType"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConfigHookAction) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "Executable":
+		return t.AsConfigHookActionExecutable()
+	case "Systemd":
+		return t.AsConfigHookActionSystemd()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
 func (t ConfigHookAction) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["configType"], err = json.Marshal(t.ConfigType)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'configType': %w", err)
+	}
+
+	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *ConfigHookAction) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["configType"]; found {
+		err = json.Unmarshal(raw, &t.ConfigType)
+		if err != nil {
+			return fmt.Errorf("error reading 'configType': %w", err)
+		}
+	}
+
 	return err
 }
 

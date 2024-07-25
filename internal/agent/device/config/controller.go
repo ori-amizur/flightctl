@@ -11,14 +11,14 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	hookManager  *HookManager
+	hookManager  HookManager
 	deviceWriter *fileio.Writer
 	log          *log.PrefixLogger
 }
 
 // NewController creates a new config controller.
 func NewController(
-	hookManager *HookManager,
+	hookManager HookManager,
 	deviceWriter *fileio.Writer,
 	log *log.PrefixLogger,
 ) *Controller {
@@ -38,23 +38,44 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 		return nil
 	}
 
-	if desired.Config.Data != nil {
-		desiredConfigRaw := []byte(*desired.Config.Data)
-		ignitionConfig, err := ParseAndConvertConfig(desiredConfigRaw)
-		if err != nil {
-			return fmt.Errorf("parsing and converting config failed: %w", err)
-		}
-
-		err = c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
-		if err != nil {
-			return fmt.Errorf("writing ignition files failed: %w", err)
-		}
-	}
-
+	// order is important here install new hooks before applying config data
 	if desired.Config.Hooks != nil {
-		// TODO; implement hooks
-		c.log.Warn("Hooks are not implemented")
+		hooks := *desired.Config.Hooks
+		return c.ensureHooks(&hooks)
 	}
 
+	if desired.Config.Data != nil {
+		data := *desired.Config.Data
+		return c.ensureConfigData(data)
+	}
+
+	return nil
+}
+
+func (c *Controller) ensureConfigData(data string) error {
+	desiredConfigRaw := []byte(data)
+	ignitionConfig, err := ParseAndConvertConfig(desiredConfigRaw)
+	if err != nil {
+		return fmt.Errorf("parsing and converting config failed: %w", err)
+	}
+
+	err = c.deviceWriter.WriteIgnitionFiles(ignitionConfig.Storage.Files...)
+	if err != nil {
+		return fmt.Errorf("writing ignition files failed: %w", err)
+	}
+	return nil
+}
+
+func (c *Controller) ensureHooks(hooks *[]v1alpha1.DeviceConfigHook) error {
+	for i := range *hooks {
+		hook := (*hooks)[i]
+		updated, err := c.hookManager.Update(&hook)
+		if err != nil {
+			return err
+		}
+		if updated {
+			c.log.Infof("Updated hook: %s", hook.Name)
+		}
+	}
 	return nil
 }
