@@ -1,5 +1,11 @@
 package v1alpha1
 
+func NewDeviceSpec() DeviceSpec {
+	return DeviceSpec{
+		Config: &DeviceConfigSpec{},
+	}
+}
+
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
 		Conditions: []Condition{},
@@ -25,5 +31,12 @@ func NewDeviceStatus() DeviceStatus {
 		Summary: DeviceSummaryStatus{
 			Status: DeviceSummaryStatusUnknown,
 		},
+	}
+}
+
+func NewTemplateVersionStatus() TemplateVersionStatus {
+	return TemplateVersionStatus{
+		Conditions: []Condition{},
+		Config:     &DeviceConfigSpec{},
 	}
 }

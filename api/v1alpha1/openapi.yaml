@@ -2831,7 +2831,7 @@ components:
               items:
                 type: string
         config:
-          $ref: '#/components/schemas/DeviceConfigSpec'
+          $ref: '#/components/schemas/RenderedDeviceConfigSpec'
         systemd:
           type: object
           properties:
@@ -2849,12 +2849,26 @@ components:
 
       required:
         - renderedVersion
-    DeviceConfigSpec:
+    RenderedDeviceConfigSpec:
       type: object
       properties:
         data:
           type: string
-          description: 'The configuration data.'
+          description: 'The rendered configuration data.'
+        hooks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceConfigHook'
+          description: 'A list of hooks to execute based on configuration changes.'
+    DeviceConfigSpec:
+      type: object
+      description: Configuration data.
+      properties:
+        source:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceConfigSourceSpec"
+          description: 'A list of config data resources.'
         hooks:
           type: array
           items:
@@ -2866,17 +2880,7 @@ components:
         os:
           $ref: '#/components/schemas/DeviceOSSpec'
         config:
-          type: array
-          description: List of config resources.
-          items:
-            type: object
-            oneOf:
-              - $ref: "#/components/schemas/GitConfigProviderSpec"
-              - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
-              - $ref: "#/components/schemas/InlineConfigProviderSpec"
-              - $ref: "#/components/schemas/HttpConfigProviderSpec"
-            discriminator:
-              propertyName: configType
+          $ref: '#/components/schemas/DeviceConfigSpec' 
         containers:
           type: object
           properties:
@@ -2899,6 +2903,16 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+    DeviceConfigSourceSpec:
+      type: object
+      description: Config data resource.
+      oneOf:
+        - $ref: "#/components/schemas/GitConfigProviderSpec"
+        - $ref: "#/components/schemas/KubernetesSecretProviderSpec"
+        - $ref: "#/components/schemas/InlineConfigProviderSpec"
+        - $ref: "#/components/schemas/HttpConfigProviderSpec"
+      discriminator:
+        propertyName: configType
     FleetStatus:
       type: object
       properties:

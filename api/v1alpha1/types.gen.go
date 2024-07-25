@@ -262,13 +262,18 @@ type DeviceConfigHook struct {
 	Name          string `json:"name"`
 }
 
-// DeviceConfigSpec defines model for DeviceConfigSpec.
-type DeviceConfigSpec struct {
-	// Data The configuration data.
-	Data *string `json:"data,omitempty"`
+// DeviceConfigSourceSpec Config data resource.
+type DeviceConfigSourceSpec struct {
+	union json.RawMessage
+}
 
+// DeviceConfigSpec Configuration data.
+type DeviceConfigSpec struct {
 	// Hooks A list of hooks to execute based on configuration changes.
 	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
+
+	// Source A list of config data resources.
+	Source *[]DeviceConfigSourceSpec `json:"source,omitempty"`
 }
 
 // DeviceConfigStatus defines model for DeviceConfigStatus.
@@ -337,8 +342,8 @@ type DeviceResourceStatusType string
 
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
-	// Config List of config resources.
-	Config     *[]DeviceSpec_Config_Item `json:"config,omitempty"`
+	// Config Configuration data.
+	Config     *DeviceConfigSpec `json:"config,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -349,11 +354,6 @@ type DeviceSpec struct {
 	Systemd   *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
-}
-
-// DeviceSpec_Config_Item defines model for DeviceSpec.config.Item.
-type DeviceSpec_Config_Item struct {
-	union json.RawMessage
 }
 
 // DeviceStatus DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -702,10 +702,19 @@ type PatchRequest = []struct {
 // PatchRequestOp The operation to perform.
 type PatchRequestOp string
 
+// RenderedDeviceConfigSpec defines model for RenderedDeviceConfigSpec.
+type RenderedDeviceConfigSpec struct {
+	// Data The rendered configuration data.
+	Data *string `json:"data,omitempty"`
+
+	// Hooks A list of hooks to execute based on configuration changes.
+	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
+}
+
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *DeviceConfigSpec `json:"config,omitempty"`
-	Console    *DeviceConsole    `json:"console,omitempty"`
+	Config     *RenderedDeviceConfigSpec `json:"config,omitempty"`
+	Console    *DeviceConsole            `json:"console,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -931,8 +940,8 @@ type TemplateVersionStatus struct {
 	// Conditions Current state of the device.
 	Conditions []Condition `json:"conditions"`
 
-	// Config List of config resources.
-	Config     *[]TemplateVersionStatus_Config_Item `json:"config,omitempty"`
+	// Config Configuration data.
+	Config     *DeviceConfigSpec `json:"config,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -944,11 +953,6 @@ type TemplateVersionStatus struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"systemd,omitempty"`
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
-}
-
-// TemplateVersionStatus_Config_Item defines model for TemplateVersionStatus.config.Item.
-type TemplateVersionStatus_Config_Item struct {
-	union json.RawMessage
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -1223,23 +1227,23 @@ func (t *ConfigHookAction) UnmarshalJSON(b []byte) error {
 	return err
 }
 
-// AsGitConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a GitConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
+// AsGitConfigProviderSpec returns the union data inside the DeviceConfigSourceSpec as a GitConfigProviderSpec
+func (t DeviceConfigSourceSpec) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
 	var body GitConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGitConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided GitConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
+// FromGitConfigProviderSpec overwrites any union data inside the DeviceConfigSourceSpec as the provided GitConfigProviderSpec
+func (t *DeviceConfigSourceSpec) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
 	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGitConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided GitConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
+// MergeGitConfigProviderSpec performs a merge with any union data inside the DeviceConfigSourceSpec, using the provided GitConfigProviderSpec
+func (t *DeviceConfigSourceSpec) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
 	v.ConfigType = "GitConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1251,23 +1255,23 @@ func (t *DeviceSpec_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderS
 	return err
 }
 
-// AsKubernetesSecretProviderSpec returns the union data inside the DeviceSpec_Config_Item as a KubernetesSecretProviderSpec
-func (t DeviceSpec_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
+// AsKubernetesSecretProviderSpec returns the union data inside the DeviceConfigSourceSpec as a KubernetesSecretProviderSpec
+func (t DeviceConfigSourceSpec) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
 	var body KubernetesSecretProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromKubernetesSecretProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided KubernetesSecretProviderSpec
-func (t *DeviceSpec_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+// FromKubernetesSecretProviderSpec overwrites any union data inside the DeviceConfigSourceSpec as the provided KubernetesSecretProviderSpec
+func (t *DeviceConfigSourceSpec) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
 	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided KubernetesSecretProviderSpec
-func (t *DeviceSpec_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
+// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the DeviceConfigSourceSpec, using the provided KubernetesSecretProviderSpec
+func (t *DeviceConfigSourceSpec) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
 	v.ConfigType = "KubernetesSecretProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1279,23 +1283,23 @@ func (t *DeviceSpec_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesS
 	return err
 }
 
-// AsInlineConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a InlineConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
+// AsInlineConfigProviderSpec returns the union data inside the DeviceConfigSourceSpec as a InlineConfigProviderSpec
+func (t DeviceConfigSourceSpec) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
 	var body InlineConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromInlineConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided InlineConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+// FromInlineConfigProviderSpec overwrites any union data inside the DeviceConfigSourceSpec as the provided InlineConfigProviderSpec
+func (t *DeviceConfigSourceSpec) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
 	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeInlineConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided InlineConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
+// MergeInlineConfigProviderSpec performs a merge with any union data inside the DeviceConfigSourceSpec, using the provided InlineConfigProviderSpec
+func (t *DeviceConfigSourceSpec) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
 	v.ConfigType = "InlineConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1307,23 +1311,23 @@ func (t *DeviceSpec_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigPro
 	return err
 }
 
-// AsHttpConfigProviderSpec returns the union data inside the DeviceSpec_Config_Item as a HttpConfigProviderSpec
-func (t DeviceSpec_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
+// AsHttpConfigProviderSpec returns the union data inside the DeviceConfigSourceSpec as a HttpConfigProviderSpec
+func (t DeviceConfigSourceSpec) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
 	var body HttpConfigProviderSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromHttpConfigProviderSpec overwrites any union data inside the DeviceSpec_Config_Item as the provided HttpConfigProviderSpec
-func (t *DeviceSpec_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+// FromHttpConfigProviderSpec overwrites any union data inside the DeviceConfigSourceSpec as the provided HttpConfigProviderSpec
+func (t *DeviceConfigSourceSpec) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
 	v.ConfigType = "HttpConfigProviderSpec"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeHttpConfigProviderSpec performs a merge with any union data inside the DeviceSpec_Config_Item, using the provided HttpConfigProviderSpec
-func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
+// MergeHttpConfigProviderSpec performs a merge with any union data inside the DeviceConfigSourceSpec, using the provided HttpConfigProviderSpec
+func (t *DeviceConfigSourceSpec) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
 	v.ConfigType = "HttpConfigProviderSpec"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -1335,7 +1339,7 @@ func (t *DeviceSpec_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProvide
 	return err
 }
 
-func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
+func (t DeviceConfigSourceSpec) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"configType"`
 	}
@@ -1343,7 +1347,7 @@ func (t DeviceSpec_Config_Item) Discriminator() (string, error) {
 	return discriminator.Discriminator, err
 }
 
-func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
+func (t DeviceConfigSourceSpec) ValueByDiscriminator() (interface{}, error) {
 	discriminator, err := t.Discriminator()
 	if err != nil {
 		return nil, err
@@ -1362,12 +1366,12 @@ func (t DeviceSpec_Config_Item) ValueByDiscriminator() (interface{}, error) {
 	}
 }
 
-func (t DeviceSpec_Config_Item) MarshalJSON() ([]byte, error) {
+func (t DeviceConfigSourceSpec) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
 }
 
-func (t *DeviceSpec_Config_Item) UnmarshalJSON(b []byte) error {
+func (t *DeviceConfigSourceSpec) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -1575,155 +1579,6 @@ func (t ResourceMonitor) MarshalJSON() ([]byte, error) {
 }
 
 func (t *ResourceMonitor) UnmarshalJSON(b []byte) error {
-	err := t.union.UnmarshalJSON(b)
-	return err
-}
-
-// AsGitConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a GitConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsGitConfigProviderSpec() (GitConfigProviderSpec, error) {
-	var body GitConfigProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromGitConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided GitConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeGitConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided GitConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeGitConfigProviderSpec(v GitConfigProviderSpec) error {
-	v.ConfigType = "GitConfigProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsKubernetesSecretProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a KubernetesSecretProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsKubernetesSecretProviderSpec() (KubernetesSecretProviderSpec, error) {
-	var body KubernetesSecretProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromKubernetesSecretProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided KubernetesSecretProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeKubernetesSecretProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided KubernetesSecretProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeKubernetesSecretProviderSpec(v KubernetesSecretProviderSpec) error {
-	v.ConfigType = "KubernetesSecretProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsInlineConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a InlineConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsInlineConfigProviderSpec() (InlineConfigProviderSpec, error) {
-	var body InlineConfigProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromInlineConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided InlineConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeInlineConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided InlineConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeInlineConfigProviderSpec(v InlineConfigProviderSpec) error {
-	v.ConfigType = "InlineConfigProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-// AsHttpConfigProviderSpec returns the union data inside the TemplateVersionStatus_Config_Item as a HttpConfigProviderSpec
-func (t TemplateVersionStatus_Config_Item) AsHttpConfigProviderSpec() (HttpConfigProviderSpec, error) {
-	var body HttpConfigProviderSpec
-	err := json.Unmarshal(t.union, &body)
-	return body, err
-}
-
-// FromHttpConfigProviderSpec overwrites any union data inside the TemplateVersionStatus_Config_Item as the provided HttpConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) FromHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
-	b, err := json.Marshal(v)
-	t.union = b
-	return err
-}
-
-// MergeHttpConfigProviderSpec performs a merge with any union data inside the TemplateVersionStatus_Config_Item, using the provided HttpConfigProviderSpec
-func (t *TemplateVersionStatus_Config_Item) MergeHttpConfigProviderSpec(v HttpConfigProviderSpec) error {
-	v.ConfigType = "HttpConfigProviderSpec"
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-
-	merged, err := runtime.JSONMerge(t.union, b)
-	t.union = merged
-	return err
-}
-
-func (t TemplateVersionStatus_Config_Item) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"configType"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t TemplateVersionStatus_Config_Item) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "GitConfigProviderSpec":
-		return t.AsGitConfigProviderSpec()
-	case "HttpConfigProviderSpec":
-		return t.AsHttpConfigProviderSpec()
-	case "InlineConfigProviderSpec":
-		return t.AsInlineConfigProviderSpec()
-	case "KubernetesSecretProviderSpec":
-		return t.AsKubernetesSecretProviderSpec()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
-}
-
-func (t TemplateVersionStatus_Config_Item) MarshalJSON() ([]byte, error) {
-	b, err := t.union.MarshalJSON()
-	return b, err
-}
-
-func (t *TemplateVersionStatus_Config_Item) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }

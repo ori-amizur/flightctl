@@ -21,8 +21,8 @@ func (r Device) Validate() []error {
 		if r.Spec.Os != nil {
 			allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Os.Image, "spec.os.image")...)
 		}
-		if r.Spec.Config != nil {
-			for _, config := range *r.Spec.Config {
+		if r.Spec.Config != nil && r.Spec.Config.Source != nil {
+			for _, config := range *r.Spec.Config.Source {
 				value, err := config.ValueByDiscriminator()
 				if err != nil {
 					allErrs = append(allErrs, fmt.Errorf("invalid configType: %s", err))
@@ -107,8 +107,8 @@ func (r Fleet) Validate() []error {
 		allErrs = append(allErrs, validation.ValidateOciImageReference(&r.Spec.Template.Spec.Os.Image, "spec.template.spec.os.image")...)
 	}
 
-	if r.Spec.Template.Spec.Config != nil {
-		for _, config := range *r.Spec.Template.Spec.Config {
+	if r.Spec.Template.Spec.Config != nil && r.Spec.Template.Spec.Config.Source != nil {
+		for _, config := range *r.Spec.Template.Spec.Config.Source {
 			value, err := config.ValueByDiscriminator()
 			if err != nil {
 				allErrs = append(allErrs, fmt.Errorf("invalid configType: %s", err))
