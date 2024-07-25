@@ -157,7 +157,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		return err
 	}
 	newDeviceSpec := api.DeviceSpec{
-		Config:     deviceConfig,
+		Config:     &api.DeviceConfigSpec{Source: deviceConfig, Hooks: device.Spec.Config.Hooks},
 		Containers: templateVersion.Status.Containers,
 		Os:         templateVersion.Status.Os,
 		Systemd:    templateVersion.Status.Systemd,
@@ -188,13 +188,13 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	return err
 }
 
-func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceSpec_Config_Item, error) {
+func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceConfigSourceSpec, error) {
 	if templateVersion.Status.Config == nil {
 		return nil, nil
 	}
 
-	deviceConfig := []api.DeviceSpec_Config_Item{}
-	for _, configItem := range *templateVersion.Status.Config {
+	deviceConfig := []api.DeviceConfigSourceSpec{}
+	for _, configItem := range *templateVersion.Status.Config.Source {
 		cfgJson, err := configItem.MarshalJSON()
 		if err != nil {
 			return nil, fmt.Errorf("failed converting configuration to json: %w", err)
@@ -205,7 +205,7 @@ func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion 
 			return nil, fmt.Errorf("failed replacing parameters: %w", err)
 		}
 
-		var newConfigItem api.DeviceSpec_Config_Item
+		var newConfigItem api.DeviceConfigSourceSpec
 		err = newConfigItem.UnmarshalJSON(cfgJson)
 		if err != nil {
 			return nil, fmt.Errorf("failed converting configuration from json: %w", err)

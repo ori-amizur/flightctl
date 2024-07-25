@@ -179,16 +179,16 @@ var _ = Describe("FleetRollout", func() {
 				// Update the TV with git and inline configs, both with parameters
 				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
 				Expect(err).ToNot(HaveOccurred())
-				gitItem := api.TemplateVersionStatus_Config_Item{}
+				gitItem := api.DeviceConfigSourceSpec{}
 				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
-				inlineItem := api.TemplateVersionStatus_Config_Item{}
+				inlineItem := api.DeviceConfigSourceSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				httpItem := api.TemplateVersionStatus_Config_Item{}
+				httpItem := api.DeviceConfigSourceSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem, httpItem}
+				tv.Status.Config.Source = &[]api.DeviceConfigSourceSpec{gitItem, inlineItem, httpItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -215,7 +215,7 @@ var _ = Describe("FleetRollout", func() {
 					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 					Expect(dev.Spec.Config).ToNot(BeNil())
 					Expect(*dev.Spec.Config).To(HaveLen(3))
-					for _, configItem := range *dev.Spec.Config {
+					for _, configItem := range *dev.Spec.Config.Source {
 						disc, err := configItem.Discriminator()
 						Expect(err).ToNot(HaveOccurred())
 						switch disc {
@@ -254,16 +254,16 @@ var _ = Describe("FleetRollout", func() {
 				// Update the TV with git and inline configs, both with parameters
 				tv, err := storeInst.TemplateVersion().Get(ctx, orgId, fleetName, "1.0")
 				Expect(err).ToNot(HaveOccurred())
-				gitItem := api.TemplateVersionStatus_Config_Item{}
+				gitItem := api.DeviceConfigSourceSpec{}
 				err = gitItem.FromGitConfigProviderSpec(*gitConfig)
 				Expect(err).ToNot(HaveOccurred())
-				inlineItem := api.TemplateVersionStatus_Config_Item{}
+				inlineItem := api.DeviceConfigSourceSpec{}
 				err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 				Expect(err).ToNot(HaveOccurred())
-				httpItem := api.TemplateVersionStatus_Config_Item{}
+				httpItem := api.DeviceConfigSourceSpec{}
 				err = httpItem.FromHttpConfigProviderSpec(*httpConfig)
 				Expect(err).ToNot(HaveOccurred())
-				tv.Status.Config = &[]api.TemplateVersionStatus_Config_Item{gitItem, inlineItem}
+				tv.Status.Config.Source = &[]api.DeviceConfigSourceSpec{gitItem, inlineItem}
 				tvCallback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
 				err = storeInst.TemplateVersion().UpdateStatus(ctx, orgId, tv, util.BoolToPtr(true), tvCallback)
 				Expect(err).ToNot(HaveOccurred())
@@ -286,7 +286,7 @@ var _ = Describe("FleetRollout", func() {
 				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
 				Expect(dev.Spec.Config).ToNot(BeNil())
 				Expect(*dev.Spec.Config).To(HaveLen(2))
-				for _, configItem := range *dev.Spec.Config {
+				for _, configItem := range *dev.Spec.Config.Source {
 					disc, err := configItem.Discriminator()
 					Expect(err).ToNot(HaveOccurred())
 					switch disc {

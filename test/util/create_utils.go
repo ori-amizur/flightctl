@@ -105,7 +105,8 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		return err
 	}
 
-	tv.Status = &api.TemplateVersionStatus{}
+	status := api.NewTemplateVersionStatus()
+	tv.Status = &status
 	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
 	err = tvStore.UpdateStatus(ctx, orgId, tv, &valid, callback)
 	return err

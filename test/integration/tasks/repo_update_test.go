@@ -84,7 +84,7 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-1"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitItem1 := api.DeviceSpec_Config_Item{}
+		gitItem1 := api.DeviceConfigSourceSpec{}
 		err = gitItem1.FromGitConfigProviderSpec(*gitConfig1)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -95,7 +95,7 @@ var _ = Describe("RepoUpdate", func() {
 		gitConfig1.GitRef.Path = "path"
 		gitConfig1.GitRef.Repository = "myrepository-2"
 		gitConfig1.GitRef.TargetRevision = "rev"
-		gitItem2 := api.DeviceSpec_Config_Item{}
+		gitItem2 := api.DeviceConfigSourceSpec{}
 		err = gitItem2.FromGitConfigProviderSpec(*gitConfig2)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -108,25 +108,25 @@ var _ = Describe("RepoUpdate", func() {
 		err = json.Unmarshal([]byte("{\"ignition\": {\"version\": \"3.4.0\"}}"), &goodInline)
 		Expect(err).ToNot(HaveOccurred())
 		inlineConfig.Inline = goodInline
-		inlineItem := api.DeviceSpec_Config_Item{}
+		inlineItem := api.DeviceConfigSourceSpec{}
 		err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		config1 := []api.DeviceSpec_Config_Item{gitItem1, inlineItem}
-		config2 := []api.DeviceSpec_Config_Item{gitItem2, inlineItem}
+		config1 := []api.DeviceConfigSourceSpec{gitItem1, inlineItem}
+		config2 := []api.DeviceConfigSourceSpec{gitItem2, inlineItem}
 
 		// Create fleet1 referencing repo1, fleet2 referencing repo2
 		fleet1 := api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet1")},
 			Spec:     api.FleetSpec{},
 		}
-		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &config1}
+		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &api.DeviceConfigSpec{Source: &config1}}
 
 		fleet2 := api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
 			Spec:     api.FleetSpec{},
 		}
-		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
+		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &api.DeviceConfigSpec{Source: &config2}}
 
 		fleetCallback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
 		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback)
@@ -142,14 +142,14 @@ var _ = Describe("RepoUpdate", func() {
 		device1 := api.Device{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("device1")},
 			Spec: &api.DeviceSpec{
-				Config: &config1,
+				Config: &api.DeviceConfigSpec{Source: &config1},
 			},
 		}
 
 		device2 := api.Device{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("device2")},
 			Spec: &api.DeviceSpec{
-				Config: &config2,
+				Config: &api.DeviceConfigSpec{Source: &config2},
 			},
 		}
 

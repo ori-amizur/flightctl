@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -461,7 +460,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	renderedConfig := api.RenderedDeviceSpec{
 		RenderedVersion: renderedVersion,
-		Config:          &v1alpha1.DeviceConfigSpec{Data: device.RenderedConfig},
+		Config:          &api.RenderedDeviceConfigSpec{Data: device.RenderedConfig},
 		Containers:      device.Spec.Data.Containers,
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,

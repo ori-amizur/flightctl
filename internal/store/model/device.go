@@ -54,7 +54,7 @@ func NewDeviceFromApiResource(resource *api.Device) (*Device, error) {
 		return &Device{}, nil
 	}
 
-	var spec api.DeviceSpec
+	spec := api.NewDeviceSpec()
 	if resource.Spec != nil {
 		spec = *resource.Spec
 	}
@@ -97,7 +97,7 @@ func (d *Device) ToApiResource() api.Device {
 		return api.Device{}
 	}
 
-	var spec api.DeviceSpec
+	spec := api.NewDeviceSpec()
 	if d.Spec != nil {
 		spec = d.Spec.Data
 	}

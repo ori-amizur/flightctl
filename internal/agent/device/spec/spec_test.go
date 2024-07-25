@@ -112,7 +112,7 @@ func createMockManagementServer(t *testing.T, noChange bool) *httptest.Server {
 		mockRenderedVersion := "mockRenderedVersion"
 		resp := v1alpha1.RenderedDeviceSpec{
 			RenderedVersion: mockRenderedVersion,
-			Config: &v1alpha1.DeviceConfigSpec{
+			Config: &v1alpha1.RenderedDeviceConfigSpec{
 				Data: util.StrToPtr("ignitionConfig"),
 			},
 		}

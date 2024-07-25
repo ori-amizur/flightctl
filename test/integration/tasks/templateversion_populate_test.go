@@ -84,11 +84,11 @@ var _ = Describe("TVPopulate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			inlineConfig.Inline = inline
 
-			inlineItem := api.DeviceSpec_Config_Item{}
+			inlineItem := api.DeviceConfigSourceSpec{}
 			err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
+			fleet.Spec.Template.Spec.Config.Source = &[]api.DeviceConfigSourceSpec{inlineItem}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -103,7 +103,7 @@ var _ = Describe("TVPopulate", func() {
 
 			Expect(tv.Status.Config).ToNot(BeNil())
 			Expect(*tv.Status.Config).To(HaveLen(1))
-			configItem := (*tv.Status.Config)[0]
+			configItem := (*tv.Status.Config.Source)[0]
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -122,11 +122,11 @@ var _ = Describe("TVPopulate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			inlineConfig.Inline = inline
 
-			inlineItem := api.DeviceSpec_Config_Item{}
+			inlineItem := api.DeviceConfigSourceSpec{}
 			err = inlineItem.FromInlineConfigProviderSpec(*inlineConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			fleet.Spec.Template.Spec.Config = &[]api.DeviceSpec_Config_Item{inlineItem}
+			fleet.Spec.Template.Spec.Config.Source = &[]api.DeviceConfigSourceSpec{inlineItem}
 			_, _, err = storeInst.Fleet().CreateOrUpdate(ctx, orgId, fleet, fleetCallback)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -141,7 +141,7 @@ var _ = Describe("TVPopulate", func() {
 
 			Expect(tv.Status.Config).ToNot(BeNil())
 			Expect(*tv.Status.Config).To(HaveLen(1))
-			configItem := (*tv.Status.Config)[0]
+			configItem := (*tv.Status.Config.Source)[0]
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
 

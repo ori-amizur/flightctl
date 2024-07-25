@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/flightctl/flightctl/api/v1alpha1"
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -71,7 +70,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	}
 
 	for _, fleet := range fleets.Items {
-		hasReference, err := t.doesConfigReferenceAnyRepo(*fleet.Spec.Template.Spec.Config)
+		hasReference, err := t.doesConfigReferenceAnyRepo(*fleet.Spec.Template.Spec.Config.Source)
 		if err != nil {
 			log.Errorf("failed checking if fleet %s/%s references any repo: %v", t.resourceRef.OrgID, *fleet.Metadata.Name, err)
 			continue
@@ -88,7 +87,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	}
 
 	for _, device := range devices.Items {
-		hasReference, err := t.doesConfigReferenceAnyRepo(*device.Spec.Config)
+		hasReference, err := t.doesConfigReferenceAnyRepo(*device.Spec.Config.Source)
 		if err != nil {
 			log.Errorf("failed checking if device %s/%s references any repo: %v", t.resourceRef.OrgID, *device.Metadata.Name, err)
 			continue
@@ -102,7 +101,7 @@ func (t *RepositoryUpdateLogic) HandleAllRepositoriesDeleted(ctx context.Context
 	return nil
 }
 
-func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []v1alpha1.DeviceSpec_Config_Item) (bool, error) {
+func (t *RepositoryUpdateLogic) doesConfigReferenceAnyRepo(configItems []api.DeviceConfigSourceSpec) (bool, error) {
 	for _, configItem := range configItems {
 		disc, err := configItem.Discriminator()
 		if err != nil {
