@@ -176,6 +176,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
+			fleet.Spec.Template.Spec = api.NewDeviceSpec()
 			called := false
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
 				called = true
@@ -360,6 +361,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
+			fleet.Spec.Template.Spec = api.NewDeviceSpec()
 			fleet2 := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: util.StrToPtr("newresourcename_2"),
@@ -371,6 +373,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
+			fleet.Spec.Template.Spec = api.NewDeviceSpec()
 			called := 0
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
 				called++
@@ -411,6 +414,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
+			fleet.Spec.Template.Spec = api.NewDeviceSpec()
 			fleet2 := api.Fleet{
 				Metadata: api.ObjectMeta{},
 				Spec: api.FleetSpec{
@@ -420,6 +424,7 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
+			fleet2.Spec.Template.Spec = api.NewDeviceSpec()
 			called := 0
 			callback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {
 				called++

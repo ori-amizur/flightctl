@@ -49,7 +49,7 @@ var _ = Describe("TVPopulate", func() {
 
 		fleet = &api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet")},
-			Spec:     api.FleetSpec{},
+			Spec:     api.NewFleetSpec(),
 		}
 		_, err := storeInst.Fleet().Create(ctx, orgId, fleet, fleetCallback)
 		Expect(err).ToNot(HaveOccurred())
@@ -101,8 +101,8 @@ var _ = Describe("TVPopulate", func() {
 			tv, err = storeInst.TemplateVersion().Get(ctx, orgId, *fleet.Metadata.Name, *tv.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(tv.Status.Config).ToNot(BeNil())
-			Expect(*tv.Status.Config).To(HaveLen(1))
+			Expect(tv.Status.Config.Source).ToNot(BeNil())
+			Expect(*tv.Status.Config.Source).To(HaveLen(1))
 			configItem := (*tv.Status.Config.Source)[0]
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())
@@ -139,8 +139,8 @@ var _ = Describe("TVPopulate", func() {
 			tv, err = storeInst.TemplateVersion().Get(ctx, orgId, *fleet.Metadata.Name, *tv.Metadata.Name)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(tv.Status.Config).ToNot(BeNil())
-			Expect(*tv.Status.Config).To(HaveLen(1))
+			Expect(tv.Status.Config.Source).ToNot(BeNil())
+			Expect(*tv.Status.Config.Source).To(HaveLen(1))
 			configItem := (*tv.Status.Config.Source)[0]
 			newInline, err := configItem.AsInlineConfigProviderSpec()
 			Expect(err).ToNot(HaveOccurred())

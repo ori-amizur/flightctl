@@ -40,3 +40,9 @@ func NewTemplateVersionStatus() TemplateVersionStatus {
 		Config:     &DeviceConfigSpec{},
 	}
 }
+
+func NewFleetSpec() FleetSpec {
+	fleet := FleetSpec{}
+	fleet.Template.Spec = NewDeviceSpec()
+	return fleet
+}

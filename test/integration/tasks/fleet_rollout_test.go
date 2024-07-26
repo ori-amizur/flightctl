@@ -213,8 +213,8 @@ var _ = Describe("FleetRollout", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(dev.Metadata.Annotations).ToNot(BeNil())
 					Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
-					Expect(dev.Spec.Config).ToNot(BeNil())
-					Expect(*dev.Spec.Config).To(HaveLen(3))
+					Expect(dev.Spec.Config.Source).ToNot(BeNil())
+					Expect(*dev.Spec.Config.Source).To(HaveLen(3))
 					for _, configItem := range *dev.Spec.Config.Source {
 						disc, err := configItem.Discriminator()
 						Expect(err).ToNot(HaveOccurred())
@@ -284,8 +284,8 @@ var _ = Describe("FleetRollout", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(dev.Metadata.Annotations).ToNot(BeNil())
 				Expect((*dev.Metadata.Annotations)[model.DeviceAnnotationTemplateVersion]).To(Equal("1.0"))
-				Expect(dev.Spec.Config).ToNot(BeNil())
-				Expect(*dev.Spec.Config).To(HaveLen(2))
+				Expect(dev.Spec.Config.Source).ToNot(BeNil())
+				Expect(*dev.Spec.Config.Source).To(HaveLen(2))
 				for _, configItem := range *dev.Spec.Config.Source {
 					disc, err := configItem.Discriminator()
 					Expect(err).ToNot(HaveOccurred())

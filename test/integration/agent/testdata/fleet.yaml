@@ -14,25 +14,26 @@ spec:
       os:
         image: quay.io/redhat/rhde:9.2
       config:
-        - name: rendered-config  # <-- this is the merged config rendered by flightctl
-          configType: InlineConfigProviderSpec
-          inline:
-            ignition:
-              version: 3.4.0
-            storage:
-              files:
-                - contents:
-                    source: >-
-                      data:,This%20system%20is%20managed%20by%20flightctl.%0A
-                  mode: 0600
-                  overwrite: true
-                  path: "/etc/motd"
-        - name: kubernetes-secret
-          configType: KubernetesSecretProviderSpec
-          secretRef:
-            name: secret
-            namespace: secret-namespace
-            mountPath: /etc/secret/secretMountPath
+        source:
+          - name: rendered-config  # <-- this is the merged config rendered by flightctl
+            configType: InlineConfigProviderSpec
+            inline:
+              ignition:
+                version: 3.4.0
+              storage:
+                files:
+                  - contents:
+                      source: >-
+                        data:,This%20system%20is%20managed%20by%20flightctl.%0A
+                    mode: 0600
+                    overwrite: true
+                    path: "/etc/motd"
+          - name: kubernetes-secret
+            configType: KubernetesSecretProviderSpec
+            secretRef:
+              name: secret
+              namespace: secret-namespace
+              mountPath: /etc/secret/secretMountPath
       systemd:
         matchPatterns:
           - chronyd.service

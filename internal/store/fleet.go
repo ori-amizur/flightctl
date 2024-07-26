@@ -155,6 +155,9 @@ func (s *FleetStore) createFleet(fleet *model.Fleet) (bool, error) {
 	if fleet.Spec.Data.Template.Metadata == nil {
 		fleet.Spec.Data.Template.Metadata = &api.ObjectMeta{}
 	}
+	if fleet.Spec.Data.Template.Spec.Config == nil {
+		fleet.Spec.Data.Template.Spec.Config = &api.DeviceConfigSpec{}
+	}
 	fleet.Spec.Data.Template.Metadata.Generation = lo.ToPtr[int64](1)
 	fleet.Generation = lo.ToPtr[int64](1)
 	fleet.ResourceVersion = lo.ToPtr[int64](1)

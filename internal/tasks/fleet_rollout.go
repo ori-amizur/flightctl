@@ -189,7 +189,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 }
 
 func (f FleetRolloutsLogic) getDeviceConfig(device *api.Device, templateVersion *api.TemplateVersion) (*[]api.DeviceConfigSourceSpec, error) {
-	if templateVersion.Status.Config == nil {
+	if templateVersion.Status.Config.Source == nil {
 		return nil, nil
 	}
 
