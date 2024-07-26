@@ -31,6 +31,17 @@ func (r Device) Validate() []error {
 				}
 			}
 		}
+		if r.Spec.Config.Hooks != nil {
+			watchPathSeen := make(map[string]struct{})
+			for _, hook := range *r.Spec.Config.Hooks {
+				_, ok := watchPathSeen[hook.FileWatchPath]
+				if ok {
+					allErrs = append(allErrs, fmt.Errorf("invalid config hook: %s:  fileWatchPath must be unique: %s", hook.Name, hook.FileWatchPath))
+					continue
+				}
+				watchPathSeen[hook.FileWatchPath] = struct{}{}
+			}
+		}
 		if r.Spec.Containers != nil {
 			for i, matchPattern := range *r.Spec.Containers.MatchPatterns {
 				matchPattern := matchPattern

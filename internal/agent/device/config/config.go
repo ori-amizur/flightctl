@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/fsnotify/fsnotify"
@@ -14,15 +15,19 @@ const (
 	ExecutableHookActionType = "Executable"
 )
 
+var (
+	ErrHookManagerNotInitialized = errors.New("hook manager not initialized")
+)
+
 type HookManager interface {
 	Run(ctx context.Context)
-	Update(hook *v1alpha1.DeviceConfigHook) (bool, error)
+	Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error)
 	ResetDefaults() error
 }
 
 type HookHandler struct {
-	*v1alpha1.DeviceConfigHook
-	FileOpLookup map[fsnotify.Op]struct{}
+	*v1alpha1.DeviceConfigHookSpec
+	opActions map[fsnotify.Op][]v1alpha1.ConfigHookAction
 }
 
 func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) fsnotify.Op {

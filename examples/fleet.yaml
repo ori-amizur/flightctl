@@ -34,6 +34,20 @@ spec:
                     mode: 422
                     overwrite: true
                     path: "/etc/motd"
+        hooks:
+          - name: "Systemd Reload Unit Hook"
+            description: "A hook that automatically reloads systemd units if updated in watched path"
+            watchDirectory: "/etc/systemd/system"
+            actions:
+              - type: "Systemd"
+                triggerOn:
+                  - "Update"
+                timeout: "30s"
+                unit:
+                  name: "" # auto-discover from the file name if it is a valid systemd unit
+                  operations:
+                    - "DaemonReload"
+                    - "Restart"
       resources:
         - monitorType: CPU
           alertRules:

@@ -6,7 +6,6 @@ package v1alpha1
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/oapi-codegen/runtime"
@@ -52,14 +51,15 @@ const (
 	TemplateVersionValid       ConditionType = "Valid"
 )
 
-// Defines values for ConfigHookActionSystemdAction.
+// Defines values for ConfigHookActionSystemdUnitOperations.
 const (
-	ConfigHookActionSystemdDisable ConfigHookActionSystemdAction = "Disable"
-	ConfigHookActionSystemdEnable  ConfigHookActionSystemdAction = "Enable"
-	ConfigHookActionSystemdReload  ConfigHookActionSystemdAction = "Reload"
-	ConfigHookActionSystemdRestart ConfigHookActionSystemdAction = "Restart"
-	ConfigHookActionSystemdStart   ConfigHookActionSystemdAction = "Start"
-	ConfigHookActionSystemdStop    ConfigHookActionSystemdAction = "Stop"
+	SystemdDaemonReload ConfigHookActionSystemdUnitOperations = "DaemonReload"
+	SystemdDisable      ConfigHookActionSystemdUnitOperations = "Disable"
+	SystemdEnable       ConfigHookActionSystemdUnitOperations = "Enable"
+	SystemdReload       ConfigHookActionSystemdUnitOperations = "Reload"
+	SystemdRestart      ConfigHookActionSystemdUnitOperations = "Restart"
+	SystemdStart        ConfigHookActionSystemdUnitOperations = "Start"
+	SystemdStop         ConfigHookActionSystemdUnitOperations = "Stop"
 )
 
 // Defines values for DeviceIntegrityStatusSummaryType.
@@ -187,36 +187,66 @@ type ConditionStatus string
 // ConditionType defines model for ConditionType.
 type ConditionType string
 
-// ConfigHookAction An action to perform on configuration changes, either a systemd action or an executable action.
+// ConfigHookAction defines model for ConfigHookAction.
 type ConfigHookAction struct {
-	// ConfigType The type of configuration action to perform.
-	ConfigType string `json:"configType"`
-	union      json.RawMessage
+	union json.RawMessage
 }
 
 // ConfigHookActionExecutable defines model for ConfigHookActionExecutable.
 type ConfigHookActionExecutable struct {
-	// ExecutableArgs A list of arguments to be passed to the executable.
-	ExecutableArgs *[]string `json:"executableArgs,omitempty"`
+	// Args The arguments to pass to the executable
+	Args []string `json:"args"`
 
-	// ExecutablePath The file path of the executable to be run.
-	ExecutablePath *string `json:"executablePath,omitempty"`
+	// Path The path to the executable file
+	Path string `json:"path"`
 
-	// WorkingDirectory The directory in which the executable will run.
-	WorkingDirectory string `json:"workingDirectory"`
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir string `json:"workDir"`
 }
 
-// ConfigHookActionSystemd defines model for ConfigHookActionSystemd.
-type ConfigHookActionSystemd struct {
-	// Action The systemd action to perform on the specified unit.
-	Action *ConfigHookActionSystemdAction `json:"action,omitempty"`
+// ConfigHookActionExecutableSpec defines model for ConfigHookActionExecutableSpec.
+type ConfigHookActionExecutableSpec struct {
+	ActionType string                     `json:"actionType"`
+	Executable ConfigHookActionExecutable `json:"executable"`
 
-	// UnitName The name of the systemd unit to act on.
-	UnitName *string `json:"unitName,omitempty"`
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout   *string         `json:"timeout,omitempty"`
+	TriggerOn []FileOperation `json:"triggerOn"`
 }
 
-// ConfigHookActionSystemdAction The systemd action to perform on the specified unit.
-type ConfigHookActionSystemdAction string
+// ConfigHookActionSpec defines model for ConfigHookActionSpec.
+type ConfigHookActionSpec struct {
+	ActionType string `json:"actionType"`
+
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout   *string         `json:"timeout,omitempty"`
+	TriggerOn []FileOperation `json:"triggerOn"`
+}
+
+// ConfigHookActionSystemdSpec defines model for ConfigHookActionSystemdSpec.
+type ConfigHookActionSystemdSpec struct {
+	ActionType string `json:"actionType"`
+
+	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
+	Timeout   *string                     `json:"timeout,omitempty"`
+	TriggerOn []FileOperation             `json:"triggerOn"`
+	Unit      ConfigHookActionSystemdUnit `json:"unit"`
+}
+
+// ConfigHookActionSystemdUnit defines model for ConfigHookActionSystemdUnit.
+type ConfigHookActionSystemdUnit struct {
+	// Name The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.
+	Name string `json:"name"`
+
+	// Operations The specific systemd operations to perform on the specified unit.
+	Operations []ConfigHookActionSystemdUnitOperations `json:"operations"`
+
+	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
+	WorkDir *string `json:"workDir,omitempty"`
+}
+
+// ConfigHookActionSystemdUnitOperations defines model for ConfigHookActionSystemdUnit.Operations.
+type ConfigHookActionSystemdUnitOperations string
 
 // CustomResourceMonitorSpec defines model for CustomResourceMonitorSpec.
 type CustomResourceMonitorSpec struct {
@@ -251,11 +281,10 @@ type DeviceApplicationsStatus struct {
 	Summary ApplicationsSummaryStatus    `json:"summary"`
 }
 
-// DeviceConfigHook defines model for DeviceConfigHook.
-type DeviceConfigHook struct {
-	Actions        []ConfigHookAction `json:"actions"`
-	Description    string             `json:"description"`
-	FileOperations []FileOperation    `json:"fileOperations"`
+// DeviceConfigHookSpec defines model for DeviceConfigHookSpec.
+type DeviceConfigHookSpec struct {
+	Actions     []ConfigHookAction `json:"actions"`
+	Description string             `json:"description"`
 
 	// FileWatchPath The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
 	FileWatchPath string `json:"fileWatchPath"`
@@ -273,7 +302,7 @@ type DeviceConfigSpec struct {
 	// hooks define actions to be taken after the configuration is applied,
 	// enabling custom behavior and integration with other systems or
 	// processes.
-	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
+	Hooks *[]DeviceConfigHookSpec `json:"hooks,omitempty"`
 
 	// Source A list of config data resources.
 	Source *[]DeviceConfigSourceSpec `json:"source,omitempty"`
@@ -711,7 +740,7 @@ type RenderedDeviceConfigSpec struct {
 	Data *string `json:"data,omitempty"`
 
 	// Hooks A list of hooks to execute based on configuration changes.
-	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
+	Hooks *[]DeviceConfigHookSpec `json:"hooks,omitempty"`
 }
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
@@ -1104,26 +1133,24 @@ type PatchResourceSyncApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 // ReplaceResourceSyncJSONRequestBody defines body for ReplaceResourceSync for application/json ContentType.
 type ReplaceResourceSyncJSONRequestBody = ResourceSync
 
-// AsConfigHookActionSystemd returns the union data inside the ConfigHookAction as a ConfigHookActionSystemd
-func (t ConfigHookAction) AsConfigHookActionSystemd() (ConfigHookActionSystemd, error) {
-	var body ConfigHookActionSystemd
+// AsConfigHookActionSystemdSpec returns the union data inside the ConfigHookAction as a ConfigHookActionSystemdSpec
+func (t ConfigHookAction) AsConfigHookActionSystemdSpec() (ConfigHookActionSystemdSpec, error) {
+	var body ConfigHookActionSystemdSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromConfigHookActionSystemd overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionSystemd
-func (t *ConfigHookAction) FromConfigHookActionSystemd(v ConfigHookActionSystemd) error {
-	t.ConfigType = "Systemd"
-
+// FromConfigHookActionSystemdSpec overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionSystemdSpec
+func (t *ConfigHookAction) FromConfigHookActionSystemdSpec(v ConfigHookActionSystemdSpec) error {
+	v.ActionType = "Systemd"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeConfigHookActionSystemd performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionSystemd
-func (t *ConfigHookAction) MergeConfigHookActionSystemd(v ConfigHookActionSystemd) error {
-	t.ConfigType = "Systemd"
-
+// MergeConfigHookActionSystemdSpec performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionSystemdSpec
+func (t *ConfigHookAction) MergeConfigHookActionSystemdSpec(v ConfigHookActionSystemdSpec) error {
+	v.ActionType = "Systemd"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1134,26 +1161,24 @@ func (t *ConfigHookAction) MergeConfigHookActionSystemd(v ConfigHookActionSystem
 	return err
 }
 
-// AsConfigHookActionExecutable returns the union data inside the ConfigHookAction as a ConfigHookActionExecutable
-func (t ConfigHookAction) AsConfigHookActionExecutable() (ConfigHookActionExecutable, error) {
-	var body ConfigHookActionExecutable
+// AsConfigHookActionExecutableSpec returns the union data inside the ConfigHookAction as a ConfigHookActionExecutableSpec
+func (t ConfigHookAction) AsConfigHookActionExecutableSpec() (ConfigHookActionExecutableSpec, error) {
+	var body ConfigHookActionExecutableSpec
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromConfigHookActionExecutable overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionExecutable
-func (t *ConfigHookAction) FromConfigHookActionExecutable(v ConfigHookActionExecutable) error {
-	t.ConfigType = "Executable"
-
+// FromConfigHookActionExecutableSpec overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionExecutableSpec
+func (t *ConfigHookAction) FromConfigHookActionExecutableSpec(v ConfigHookActionExecutableSpec) error {
+	v.ActionType = "Executable"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeConfigHookActionExecutable performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionExecutable
-func (t *ConfigHookAction) MergeConfigHookActionExecutable(v ConfigHookActionExecutable) error {
-	t.ConfigType = "Executable"
-
+// MergeConfigHookActionExecutableSpec performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionExecutableSpec
+func (t *ConfigHookAction) MergeConfigHookActionExecutableSpec(v ConfigHookActionExecutableSpec) error {
+	v.ActionType = "Executable"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1166,7 +1191,7 @@ func (t *ConfigHookAction) MergeConfigHookActionExecutable(v ConfigHookActionExe
 
 func (t ConfigHookAction) Discriminator() (string, error) {
 	var discriminator struct {
-		Discriminator string `json:"configType"`
+		Discriminator string `json:"actionType"`
 	}
 	err := json.Unmarshal(t.union, &discriminator)
 	return discriminator.Discriminator, err
@@ -1179,9 +1204,9 @@ func (t ConfigHookAction) ValueByDiscriminator() (interface{}, error) {
 	}
 	switch discriminator {
 	case "Executable":
-		return t.AsConfigHookActionExecutable()
+		return t.AsConfigHookActionExecutableSpec()
 	case "Systemd":
-		return t.AsConfigHookActionSystemd()
+		return t.AsConfigHookActionSystemdSpec()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}
@@ -1189,44 +1214,11 @@ func (t ConfigHookAction) ValueByDiscriminator() (interface{}, error) {
 
 func (t ConfigHookAction) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
-	if err != nil {
-		return nil, err
-	}
-	object := make(map[string]json.RawMessage)
-	if t.union != nil {
-		err = json.Unmarshal(b, &object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	object["configType"], err = json.Marshal(t.ConfigType)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'configType': %w", err)
-	}
-
-	b, err = json.Marshal(object)
 	return b, err
 }
 
 func (t *ConfigHookAction) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
-	if err != nil {
-		return err
-	}
-	object := make(map[string]json.RawMessage)
-	err = json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["configType"]; found {
-		err = json.Unmarshal(raw, &t.ConfigType)
-		if err != nil {
-			return fmt.Errorf("error reading 'configType': %w", err)
-		}
-	}
-
 	return err
 }
 

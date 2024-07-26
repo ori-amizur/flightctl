@@ -81,3 +81,12 @@ func (s *Systemd) Enable(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+func (s *Systemd) DaemonReload(ctx context.Context) error {
+	args := []string{"daemon-reload"}
+	_, errOut, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("failed to daemon-reload systemd  %d: %s", exitCode, errOut)
+	}
+	return nil
+}

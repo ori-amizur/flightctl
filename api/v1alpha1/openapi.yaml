@@ -2181,17 +2181,13 @@ components:
         - "ResourceAlertSeverityTypeWarning"
         - "ResourceAlertSeverityTypeCritical"
         - "ResourceAlertSeverityTypeInfo"
-    DeviceConfigHook:
+    DeviceConfigHookSpec:
       type: object
       properties:
         name:
           type: string
         description:
           type: string 
-        fileOperations:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileOperation'
         actions:
           type: array
           items:
@@ -2202,7 +2198,6 @@ components:
       required:
         - name
         - description
-        - fileOperations
         - actions
         - fileWatchPath
     FileOperation:
@@ -2224,65 +2219,103 @@ components:
         - "FileOperationChangePermissions"
     ConfigHookAction:
       type: object
-      properties:
-        configType:
-          type: string
-          description: 'The type of configuration action to perform.'
-      required:
-        - configType
-      discriminator:
-        propertyName: configType
-        mapping:
-          Systemd: '#/components/schemas/ConfigHookActionSystemd'
-          Executable: '#/components/schemas/ConfigHookActionExecutable'
-      description: 'An action to perform on configuration changes, either a systemd action or an executable action.'
       oneOf:
-        - $ref: '#/components/schemas/ConfigHookActionSystemd'
-        - $ref: '#/components/schemas/ConfigHookActionExecutable'
-    ConfigHookActionSystemd:
+        - $ref: '#/components/schemas/ConfigHookActionSystemdSpec'
+        - $ref: '#/components/schemas/ConfigHookActionExecutableSpec'
+      discriminator:
+        propertyName: actionType
+        mapping:
+          Systemd: '#/components/schemas/ConfigHookActionSystemdSpec'
+          Executable: '#/components/schemas/ConfigHookActionExecutableSpec'
+    ConfigHookActionSpec:
       type: object
       properties:
-        unitName:
+        actionType:
           type: string
-          description: 'The name of the systemd unit to act on.'
-        action:
-          type: string
-          enum:
-            - "Enable"
-            - "Disable"
-            - "Start"
-            - "Stop"
-            - "Restart"
-            - "Reload"
-          x-enum-varnames:
-            - "ConfigHookActionSystemdEnable"
-            - "ConfigHookActionSystemdDisable"
-            - "ConfigHookActionSystemdStart"
-            - "ConfigHookActionSystemdStop"
-            - "ConfigHookActionSystemdRestart"
-            - "ConfigHookActionSystemdReload"
-          description: 'The systemd action to perform on the specified unit.'
+        triggerOn:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileOperation'
+        timeout:
+             type: string
+             pattern: '^[1-9]\d*[smhd]$'
+             description: "Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer."
+      required:
+        - actionType
+        - triggerOn
+    ConfigHookActionSystemdSpec:
+       allOf:
+        - $ref: '#/components/schemas/ConfigHookActionSpec'
+        - type: object
+          properties:
+            unit:
+              $ref: '#/components/schemas/ConfigHookActionSystemdUnit'
+          discriminator:
+            propertyName: actionType
           required:
-            - unitName
-            - action
-    ConfigHookActionExecutable:
+            - unit
+    ConfigHookActionSystemdUnit:
       type: object
       properties:
-        executablePath:
+        name:
           type: string
-          description: 'The file path of the executable to be run.'
-        executableArgs:
+          description: 'The name of the systemd unit on which the specified operations will be performed. This should be the exact name of the unit file, such as example.service. If the name is not populated the name will be auto discovered from the file path.'
+        operations:
           type: array
           items:
             type: string
-          description: 'A list of arguments to be passed to the executable.'
-        workingDirectory:
-          type: string
-          description: 'The directory in which the executable will run.'
+            enum:
+              - "Enable"
+              - "Disable"
+              - "Start"
+              - "Stop"
+              - "Restart"
+              - "Reload"
+              - "DaemonReload"
+            x-enum-varnames:
+              - "SystemdEnable"
+              - "SystemdDisable"
+              - "SystemdStart"
+              - "SystemdStop"
+              - "SystemdRestart"
+              - "SystemdReload"
+              - "SystemdDaemonReload"
+          description: 'The specific systemd operations to perform on the specified unit.'
+        workDir:
+            type: string
+            description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
       required:
-        - filePath
-        - params
-        - workingDirectory
+        - name
+        - operations 
+    ConfigHookActionExecutableSpec:
+      allOf:
+        - $ref: '#/components/schemas/ConfigHookActionSpec'
+        - type: object
+          properties:
+            executable:
+              $ref: '#/components/schemas/ConfigHookActionExecutable'
+          discriminator:
+            propertyName: actionType
+          required:
+            - executable
+    ConfigHookActionExecutable:
+          type: object
+          properties:
+            path:
+              type: string
+              description: The path to the executable file
+            args:
+              type: array
+              items:
+                type: string
+              description: The arguments to pass to the executable
+            workDir:
+              type: string
+              description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
+          required:
+            - path
+            - args
+            - workDir
     DeviceList:
       type: object
       properties:
@@ -2859,7 +2892,7 @@ components:
         hooks:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceConfigHook'
+            $ref: '#/components/schemas/DeviceConfigHookSpec'
           description: 'A list of hooks to execute based on configuration changes.'
     DeviceConfigSpec:
       type: object
@@ -2873,7 +2906,7 @@ components:
         hooks:
           type: array
           items:
-            $ref: '#/components/schemas/DeviceConfigHook'
+            $ref: '#/components/schemas/DeviceConfigHookSpec'
           description: |
             A list of hooks to execute based on configuration changes. These
             hooks define actions to be taken after the configuration is applied,
