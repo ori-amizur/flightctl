@@ -1,4 +1,3 @@
-
 apiVersion: v1alpha1
 kind: Fleet
 metadata:
@@ -16,6 +15,12 @@ spec:
         image: quay.io/redhat/rhde:9.2
       config:
         source:
+          - name: base
+            configType: GitConfigProviderSpec
+            gitRef:
+              repository: flightctl-demos
+              targetRevision: main
+              path: /demos/basic-nginx-demo/configuration
           - name: motd-update
             configType: InlineConfigProviderSpec
             inline:
