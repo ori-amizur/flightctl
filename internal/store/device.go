@@ -460,7 +460,7 @@ func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name str
 
 	renderedConfig := api.RenderedDeviceSpec{
 		RenderedVersion: renderedVersion,
-		Config:          &api.RenderedDeviceConfigSpec{Data: device.RenderedConfig},
+		Config:          api.RenderedDeviceConfigSpec{Data: device.RenderedConfig},
 		Containers:      device.Spec.Data.Containers,
 		Os:              device.Spec.Data.Os,
 		Systemd:         device.Spec.Data.Systemd,

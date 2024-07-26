@@ -269,7 +269,10 @@ type DeviceConfigSourceSpec struct {
 
 // DeviceConfigSpec Configuration data.
 type DeviceConfigSpec struct {
-	// Hooks A list of hooks to execute based on configuration changes.
+	// Hooks A list of hooks to execute based on configuration changes. These
+	// hooks define actions to be taken after the configuration is applied,
+	// enabling custom behavior and integration with other systems or
+	// processes.
 	Hooks *[]DeviceConfigHook `json:"hooks,omitempty"`
 
 	// Source A list of config data resources.
@@ -343,7 +346,7 @@ type DeviceResourceStatusType string
 // DeviceSpec defines model for DeviceSpec.
 type DeviceSpec struct {
 	// Config Configuration data.
-	Config     *DeviceConfigSpec `json:"config,omitempty"`
+	Config     DeviceConfigSpec `json:"config"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -713,8 +716,8 @@ type RenderedDeviceConfigSpec struct {
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
 type RenderedDeviceSpec struct {
-	Config     *RenderedDeviceConfigSpec `json:"config,omitempty"`
-	Console    *DeviceConsole            `json:"console,omitempty"`
+	Config     RenderedDeviceConfigSpec `json:"config"`
+	Console    *DeviceConsole           `json:"console,omitempty"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`
@@ -941,7 +944,7 @@ type TemplateVersionStatus struct {
 	Conditions []Condition `json:"conditions"`
 
 	// Config Configuration data.
-	Config     *DeviceConfigSpec `json:"config,omitempty"`
+	Config     DeviceConfigSpec `json:"config"`
 	Containers *struct {
 		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 	} `json:"containers,omitempty"`

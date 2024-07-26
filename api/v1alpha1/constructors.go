@@ -1,11 +1,5 @@
 package v1alpha1
 
-func NewDeviceSpec() DeviceSpec {
-	return DeviceSpec{
-		Config: &DeviceConfigSpec{},
-	}
-}
-
 func NewDeviceStatus() DeviceStatus {
 	return DeviceStatus{
 		Conditions: []Condition{},
@@ -32,17 +26,4 @@ func NewDeviceStatus() DeviceStatus {
 			Status: DeviceSummaryStatusUnknown,
 		},
 	}
-}
-
-func NewTemplateVersionStatus() TemplateVersionStatus {
-	return TemplateVersionStatus{
-		Conditions: []Condition{},
-		Config:     &DeviceConfigSpec{},
-	}
-}
-
-func NewFleetSpec() FleetSpec {
-	fleet := FleetSpec{}
-	fleet.Template.Spec = NewDeviceSpec()
-	return fleet
 }

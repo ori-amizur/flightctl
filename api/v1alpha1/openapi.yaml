@@ -2848,6 +2848,7 @@ components:
           $ref: '#/components/schemas/DeviceConsole'
 
       required:
+        - config
         - renderedVersion
     RenderedDeviceConfigSpec:
       type: object
@@ -2873,7 +2874,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeviceConfigHook'
-          description: 'A list of hooks to execute based on configuration changes.'
+          description: |
+            A list of hooks to execute based on configuration changes. These
+            hooks define actions to be taken after the configuration is applied,
+            enabling custom behavior and integration with other systems or
+            processes.
     DeviceSpec:
       type: object
       properties:
@@ -2903,6 +2908,8 @@ components:
           description: 'Array of resource monitor configurations.'
           items:
             $ref: '#/components/schemas/ResourceMonitor'
+      required:
+        - config
     DeviceConfigSourceSpec:
       type: object
       description: Config data resource.

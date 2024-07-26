@@ -33,11 +33,6 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
-	if desired.Config == nil {
-		c.log.Debug("Device config is nil")
-		return nil
-	}
-
 	// order is important here install new hooks before applying config data
 	if desired.Config.Hooks != nil {
 		hooks := *desired.Config.Hooks

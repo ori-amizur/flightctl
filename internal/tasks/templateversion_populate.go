@@ -59,7 +59,7 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 		return t.setStatus(ctx, err)
 	}
 
-	if t.fleet.Spec.Template.Spec.Config != nil {
+	if t.fleet.Spec.Template.Spec.Config.Source != nil {
 		t.frozenConfig = []api.DeviceConfigSourceSpec{}
 
 		for i := range *t.fleet.Spec.Template.Spec.Config.Source {
@@ -299,7 +299,7 @@ func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceCo
 }
 
 func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validationErr error) error {
-	status := api.NewTemplateVersionStatus()
+	status := api.TemplateVersionStatus{}
 	t.templateVersion.Status = &status
 	if validationErr != nil {
 		t.log.Errorf("failed syncing template to template version: %v", validationErr)

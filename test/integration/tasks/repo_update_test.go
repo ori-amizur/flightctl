@@ -120,13 +120,12 @@ var _ = Describe("RepoUpdate", func() {
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet1")},
 			Spec:     api.FleetSpec{},
 		}
-		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: &api.DeviceConfigSpec{Source: &config1}}
+		fleet1.Spec.Template.Spec = api.DeviceSpec{Config: api.DeviceConfigSpec{Source: &config1}}
 
 		fleet2 := api.Fleet{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("fleet2")},
-			Spec:     api.NewFleetSpec(),
 		}
-		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &api.DeviceConfigSpec{Source: &config2}}
+		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: api.DeviceConfigSpec{Source: &config2}}
 
 		fleetCallback := store.FleetStoreCallback(func(before *model.Fleet, after *model.Fleet) {})
 		_, err = storeInst.Fleet().Create(ctx, orgId, &fleet1, fleetCallback)
@@ -142,14 +141,14 @@ var _ = Describe("RepoUpdate", func() {
 		device1 := api.Device{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("device1")},
 			Spec: &api.DeviceSpec{
-				Config: &api.DeviceConfigSpec{Source: &config1},
+				Config: api.DeviceConfigSpec{Source: &config1},
 			},
 		}
 
 		device2 := api.Device{
 			Metadata: api.ObjectMeta{Name: util.StrToPtr("device2")},
 			Spec: &api.DeviceSpec{
-				Config: &api.DeviceConfigSpec{Source: &config2},
+				Config: api.DeviceConfigSpec{Source: &config2},
 			},
 		}
 

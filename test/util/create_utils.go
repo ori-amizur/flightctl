@@ -22,7 +22,6 @@ func CreateTestDevice(ctx context.Context, deviceStore store.Device, orgId uuid.
 			Owner:  owner,
 		},
 		Spec: &api.DeviceSpec{
-			Config: &api.DeviceConfigSpec{},
 			Os: &api.DeviceOSSpec{
 				Image: "os",
 			},
@@ -65,7 +64,6 @@ func CreateTestFleet(ctx context.Context, fleetStore store.Fleet, orgId uuid.UUI
 			Labels: selector,
 			Owner:  owner,
 		},
-		Spec: api.NewFleetSpec(),
 	}
 
 	if selector != nil {
@@ -90,7 +88,7 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 
 func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name, osImage string, valid bool) error {
 	owner := util.SetResourceOwner(model.FleetKind, fleet)
-	status := api.NewTemplateVersionStatus()
+	status := api.TemplateVersionStatus{}
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  &name,

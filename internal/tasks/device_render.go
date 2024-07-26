@@ -59,7 +59,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 
 	// If device.Spec or device.Spec.Config.Source are nil, we still want to render an empty ignition config
 	var config *[]api.DeviceConfigSourceSpec
-	if device.Spec != nil && device.Spec.Config != nil {
+	if device.Spec != nil {
 		config = device.Spec.Config.Source
 	}
 
