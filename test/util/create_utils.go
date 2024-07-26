@@ -88,7 +88,6 @@ func CreateTestFleets(ctx context.Context, numFleets int, fleetStore store.Fleet
 
 func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersion, orgId uuid.UUID, fleet, name, osImage string, valid bool) error {
 	owner := util.SetResourceOwner(model.FleetKind, fleet)
-	status := api.TemplateVersionStatus{}
 	resource := api.TemplateVersion{
 		Metadata: api.ObjectMeta{
 			Name:  &name,
@@ -97,7 +96,6 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		Spec: api.TemplateVersionSpec{
 			Fleet: fleet,
 		},
-		Status: &status,
 	}
 
 	callback := store.TemplateVersionStoreCallback(func(tv *model.TemplateVersion) {})
@@ -106,7 +104,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore store.TemplateVersio
 		return err
 	}
 
-	tv.Status = &status
+	tv.Status = &api.TemplateVersionStatus{}
 	tv.Status.Os = &api.DeviceOSSpec{Image: osImage}
 	err = tvStore.UpdateStatus(ctx, orgId, tv, &valid, callback)
 	return err

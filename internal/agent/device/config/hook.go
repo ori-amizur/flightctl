@@ -80,18 +80,10 @@ func (m *hookManager) Run(ctx context.Context) {
 
 // Update the manager with the new hook if appropriate.
 func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHook) (bool, error) {
-	handler, ok := m.handlers[hook.FileWatchPath]
-	if !ok {
+	if handler, ok := m.handlers[hook.FileWatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHook) {
 		m.addOrReplaceHookHandler(hook)
 		return true, nil
 	}
-
-	if reflect.DeepEqual(hook, handler.DeviceConfigHook) {
-		return false, nil
-	}
-
-	m.addOrReplaceHookHandler(hook)
-
 	return false, nil
 }
 
