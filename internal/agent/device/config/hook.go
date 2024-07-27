@@ -67,7 +67,7 @@ func (m *hookManager) Run(ctx context.Context) {
 			return
 		case event, ok := <-m.watcher.Events:
 			if !ok {
-				m.log.Infof("Watcher events channel closed")
+				m.log.Debug("Watcher events channel closed")
 				return
 			}
 			err := m.Handle(ctx, event)
@@ -76,7 +76,7 @@ func (m *hookManager) Run(ctx context.Context) {
 			}
 		case err, ok := <-m.watcher.Errors:
 			if !ok {
-				m.log.Infof("Watcher errors channel closed")
+				m.log.Debug("Watcher errors channel closed")
 				return
 			}
 			m.log.Errorf("error: %v", err)
@@ -94,7 +94,7 @@ func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) 
 		return false, ErrHookManagerNotInitialized
 	}
 
-	if handler, ok := m.handlers[hook.FileWatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
+	if handler, ok := m.handlers[hook.WatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
 		return true, m.addOrReplaceHookHandler(hook)
 	}
 	return false, nil
@@ -284,19 +284,19 @@ func (m *hookManager) addOrReplaceHookHandler(hook *v1alpha1.DeviceConfigHookSpe
 	}
 
 	// TODO: this is a fair amount of work to do on every update, we should consider optimizing this.
-	m.handlers[hook.FileWatchPath] = HookHandler{
+	m.handlers[hook.WatchPath] = HookHandler{
 		DeviceConfigHookSpec: hook,
 		opActions:            opActions,
 	}
 
 	// watcher will error if the path is already being watched
 	for _, watchPath := range m.watcher.WatchList() {
-		if watchPath == hook.FileWatchPath {
+		if watchPath == hook.WatchPath {
 			return nil
 		}
 	}
 
-	if err := m.watcher.Add(hook.FileWatchPath); err != nil {
+	if err := m.watcher.Add(hook.WatchPath); err != nil {
 		return fmt.Errorf("failed adding watch: %w", err)
 	}
 

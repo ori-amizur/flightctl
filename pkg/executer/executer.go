@@ -3,7 +3,6 @@ package executer
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 )
@@ -33,7 +32,6 @@ func (e *CommonExecuter) ExecuteWithContext(ctx context.Context, command string,
 }
 
 func (e *CommonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args ...string) (stdout string, stderr string, exitCode int) {
-	fmt.Printf("Executing command: %s %v in %s\n", command, args, workingDir)
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = workingDir
 	return e.execute(cmd)

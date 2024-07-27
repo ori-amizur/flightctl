@@ -14,7 +14,7 @@ spec:
       os:
         image: quay.io/redhat/rhde:9.2
       config:
-        source:
+        source: 
           - name: base
             configType: GitConfigProviderSpec
             gitRef:
@@ -36,8 +36,8 @@ spec:
                     path: "/etc/motd"
         hooks:
           - name: "Systemd Reload Unit Hook"
-            description: "A hook that automatically reloads systemd units if updated in watched path"
-            watchDirectory: "/etc/systemd/system"
+            description: "A hook that automatically reloads systemd units if updated in the watched path"
+            watchPath: "/etc/systemd/system"
             actions:
               - type: "Systemd"
                 triggerOn:

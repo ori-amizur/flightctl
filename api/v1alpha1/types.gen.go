@@ -206,30 +206,28 @@ type ConfigHookActionExecutable struct {
 
 // ConfigHookActionExecutableSpec defines model for ConfigHookActionExecutableSpec.
 type ConfigHookActionExecutableSpec struct {
-	ActionType string                     `json:"actionType"`
 	Executable ConfigHookActionExecutable `json:"executable"`
 
 	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
 	Timeout   *string         `json:"timeout,omitempty"`
 	TriggerOn []FileOperation `json:"triggerOn"`
+	Type      string          `json:"type"`
 }
 
 // ConfigHookActionSpec defines model for ConfigHookActionSpec.
 type ConfigHookActionSpec struct {
-	ActionType string `json:"actionType"`
-
 	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
 	Timeout   *string         `json:"timeout,omitempty"`
 	TriggerOn []FileOperation `json:"triggerOn"`
+	Type      string          `json:"type"`
 }
 
 // ConfigHookActionSystemdSpec defines model for ConfigHookActionSystemdSpec.
 type ConfigHookActionSystemdSpec struct {
-	ActionType string `json:"actionType"`
-
 	// Timeout Duration after which the action will be terminated. Format: number followed by 's' for seconds, 'm' for minutes, 'h' for hours, 'd' for days. Must be a positive integer.
 	Timeout   *string                     `json:"timeout,omitempty"`
 	TriggerOn []FileOperation             `json:"triggerOn"`
+	Type      string                      `json:"type"`
 	Unit      ConfigHookActionSystemdUnit `json:"unit"`
 }
 
@@ -285,10 +283,10 @@ type DeviceApplicationsStatus struct {
 type DeviceConfigHookSpec struct {
 	Actions     []ConfigHookAction `json:"actions"`
 	Description string             `json:"description"`
+	Name        string             `json:"name"`
 
-	// FileWatchPath The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
-	FileWatchPath string `json:"fileWatchPath"`
-	Name          string `json:"name"`
+	// WatchPath The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.
+	WatchPath string `json:"watchPath"`
 }
 
 // DeviceConfigSourceSpec Config data resource.
@@ -1142,7 +1140,7 @@ func (t ConfigHookAction) AsConfigHookActionSystemdSpec() (ConfigHookActionSyste
 
 // FromConfigHookActionSystemdSpec overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionSystemdSpec
 func (t *ConfigHookAction) FromConfigHookActionSystemdSpec(v ConfigHookActionSystemdSpec) error {
-	v.ActionType = "Systemd"
+	v.Type = "Systemd"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -1150,7 +1148,7 @@ func (t *ConfigHookAction) FromConfigHookActionSystemdSpec(v ConfigHookActionSys
 
 // MergeConfigHookActionSystemdSpec performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionSystemdSpec
 func (t *ConfigHookAction) MergeConfigHookActionSystemdSpec(v ConfigHookActionSystemdSpec) error {
-	v.ActionType = "Systemd"
+	v.Type = "Systemd"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1170,7 +1168,7 @@ func (t ConfigHookAction) AsConfigHookActionExecutableSpec() (ConfigHookActionEx
 
 // FromConfigHookActionExecutableSpec overwrites any union data inside the ConfigHookAction as the provided ConfigHookActionExecutableSpec
 func (t *ConfigHookAction) FromConfigHookActionExecutableSpec(v ConfigHookActionExecutableSpec) error {
-	v.ActionType = "Executable"
+	v.Type = "Executable"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
@@ -1178,7 +1176,7 @@ func (t *ConfigHookAction) FromConfigHookActionExecutableSpec(v ConfigHookAction
 
 // MergeConfigHookActionExecutableSpec performs a merge with any union data inside the ConfigHookAction, using the provided ConfigHookActionExecutableSpec
 func (t *ConfigHookAction) MergeConfigHookActionExecutableSpec(v ConfigHookActionExecutableSpec) error {
-	v.ActionType = "Executable"
+	v.Type = "Executable"
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1191,7 +1189,7 @@ func (t *ConfigHookAction) MergeConfigHookActionExecutableSpec(v ConfigHookActio
 
 func (t ConfigHookAction) Discriminator() (string, error) {
 	var discriminator struct {
-		Discriminator string `json:"actionType"`
+		Discriminator string `json:"type"`
 	}
 	err := json.Unmarshal(t.union, &discriminator)
 	return discriminator.Discriminator, err

@@ -49,6 +49,7 @@ func (s *TemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, reso
 	if resource == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
+
 	templateVersion, err := model.NewTemplateVersionFromApiResource(resource)
 	if err != nil {
 		return nil, err

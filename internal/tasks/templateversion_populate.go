@@ -31,14 +31,14 @@ func templateVersionPopulate(ctx context.Context, resourceRef *ResourceReference
 }
 
 type TemplateVersionPopulateLogic struct {
-	callbackManager CallbackManager
-	log             logrus.FieldLogger
-	store           store.Store
-	k8sClient       k8sclient.K8SClient
-	resourceRef     ResourceReference
-	templateVersion *api.TemplateVersion
-	fleet           *api.Fleet
-	frozenConfig    []api.DeviceConfigSourceSpec
+	callbackManager    CallbackManager
+	log                logrus.FieldLogger
+	store              store.Store
+	k8sClient          k8sclient.K8SClient
+	resourceRef        ResourceReference
+	templateVersion    *api.TemplateVersion
+	fleet              *api.Fleet
+	frozenConfigSource []api.DeviceConfigSourceSpec
 }
 
 func NewTemplateVersionPopulateLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, resourceRef ResourceReference) TemplateVersionPopulateLogic {
@@ -59,8 +59,9 @@ func (t *TemplateVersionPopulateLogic) SyncFleetTemplateToTemplateVersion(ctx co
 		return t.setStatus(ctx, err)
 	}
 
+	// freeze the config source
 	if t.fleet.Spec.Template.Spec.Config.Source != nil {
-		t.frozenConfig = []api.DeviceConfigSourceSpec{}
+		t.frozenConfigSource = []api.DeviceConfigSourceSpec{}
 
 		for i := range *t.fleet.Spec.Template.Spec.Config.Source {
 			configItem := (*t.fleet.Spec.Template.Spec.Config.Source)[i]
@@ -92,6 +93,10 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("failed fetching fleet: %w", err)
 	}
+
+	t.log.Infof("Syncing template of %s to template version %s/%s", t.resourceRef.Owner, t.resourceRef.OrgID, t.resourceRef.Name)
+	t.log.Infof("### fleet hooks: %+v", fleet.Spec.Template.Spec.Config.Hooks)
+
 	t.fleet = fleet
 
 	return nil
@@ -145,12 +150,12 @@ func (t *TemplateVersionPopulateLogic) handleGitConfig(ctx context.Context, conf
 
 	// Add this git hash into the frozen config
 	gitSpec.GitRef.TargetRevision = hash
-	newConfig := &api.DeviceConfigSourceSpec{}
-	err = newConfig.FromGitConfigProviderSpec(gitSpec)
+	newConfigSource := &api.DeviceConfigSourceSpec{}
+	err = newConfigSource.FromGitConfigProviderSpec(gitSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating git config from item %s: %w", gitSpec.Name, err)
 	}
-	t.frozenConfig = append(t.frozenConfig, *newConfig)
+	t.frozenConfigSource = append(t.frozenConfigSource, *newConfigSource)
 
 	return nil
 }
@@ -197,7 +202,7 @@ func (t *TemplateVersionPopulateLogic) handleK8sConfig(configItem *api.DeviceCon
 	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
 		return err
 	}
-	t.frozenConfig = append(t.frozenConfig, newConfig)
+	t.frozenConfigSource = append(t.frozenConfigSource, newConfig)
 	return nil
 }
 
@@ -208,13 +213,13 @@ func (t *TemplateVersionPopulateLogic) handleInlineConfig(configItem *api.Device
 	}
 
 	// Just add the inline config as-is
-	newConfig := &api.DeviceConfigSourceSpec{}
-	err = newConfig.FromInlineConfigProviderSpec(inlineSpec)
+	newConfigSource := &api.DeviceConfigSourceSpec{}
+	err = newConfigSource.FromInlineConfigProviderSpec(inlineSpec)
 	if err != nil {
 		return fmt.Errorf("failed creating inline config from item %s: %w", inlineSpec.Name, err)
 	}
 
-	t.frozenConfig = append(t.frozenConfig, *newConfig)
+	t.frozenConfigSource = append(t.frozenConfigSource, *newConfigSource)
 	return nil
 }
 
@@ -285,29 +290,30 @@ func (t *TemplateVersionPopulateLogic) handleHttpConfig(configItem *api.DeviceCo
 	if err != nil {
 		return fmt.Errorf("failed to convert ignition to ap: %w", err)
 	}
-	newConfig := api.DeviceConfigSourceSpec{}
+	newConfigSource := api.DeviceConfigSourceSpec{}
 	inlineSpec := api.InlineConfigProviderSpec{
 		Inline: m,
 		Name:   httpSpec.Name,
 	}
-	if err = newConfig.FromInlineConfigProviderSpec(inlineSpec); err != nil {
+	if err = newConfigSource.FromInlineConfigProviderSpec(inlineSpec); err != nil {
 		return err
 	}
-	t.frozenConfig = append(t.frozenConfig, newConfig)
+	t.frozenConfigSource = append(t.frozenConfigSource, newConfigSource)
 
 	return nil
 }
 
 func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validationErr error) error {
-	status := api.TemplateVersionStatus{}
-	t.templateVersion.Status = &status
+	t.templateVersion.Status = &api.TemplateVersionStatus{}
 	if validationErr != nil {
 		t.log.Errorf("failed syncing template to template version: %v", validationErr)
 	} else {
+		t.log.Infof("#### set status hooks: %+v", t.fleet.Spec.Template.Spec.Config.Hooks)
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
-		t.templateVersion.Status.Config.Source = &t.frozenConfig
+		t.templateVersion.Status.Config.Source = &t.frozenConfigSource
+		t.templateVersion.Status.Config.Hooks = t.fleet.Spec.Template.Spec.Config.Hooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)

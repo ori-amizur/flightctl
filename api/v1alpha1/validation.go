@@ -34,12 +34,12 @@ func (r Device) Validate() []error {
 		if r.Spec.Config.Hooks != nil {
 			watchPathSeen := make(map[string]struct{})
 			for _, hook := range *r.Spec.Config.Hooks {
-				_, ok := watchPathSeen[hook.FileWatchPath]
+				_, ok := watchPathSeen[hook.WatchPath]
 				if ok {
-					allErrs = append(allErrs, fmt.Errorf("invalid config hook: %s:  fileWatchPath must be unique: %s", hook.Name, hook.FileWatchPath))
+					allErrs = append(allErrs, fmt.Errorf("invalid config hook: %s:  fileWatchPath must be unique: %s", hook.Name, hook.WatchPath))
 					continue
 				}
-				watchPathSeen[hook.FileWatchPath] = struct{}{}
+				watchPathSeen[hook.WatchPath] = struct{}{}
 			}
 		}
 		if r.Spec.Containers != nil {

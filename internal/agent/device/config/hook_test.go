@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	testRetryTimeout  = 5000 * time.Second
+	testRetryTimeout  = 5 * time.Second
 	testRetryInterval = 100 * time.Millisecond
 )
 
@@ -29,7 +29,6 @@ func TestHookManager(t *testing.T) {
 	require.NoError(err)
 
 	log := log.NewPrefixLogger("test")
-	log.Infof("tmpDir: %s", tmpDir)
 
 	type TestFiles struct {
 		filePath string
@@ -48,9 +47,9 @@ func TestHookManager(t *testing.T) {
 		{
 			name: "happy path file create",
 			hook: &v1alpha1.DeviceConfigHookSpec{
-				Name:          "test-hook",
-				Description:   "test hook",
-				FileWatchPath: varDirPath,
+				Name:        "test-hook",
+				Description: "test hook",
+				WatchPath:   varDirPath,
 				Actions: []v1alpha1.ConfigHookAction{
 					newTestConfigHookActionExecutable(t, cwd, execPath, []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, filepath.Join(varDirPath, "file1"), "file1-content"),
 				},

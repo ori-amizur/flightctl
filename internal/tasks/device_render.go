@@ -58,12 +58,12 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	// If device.Spec or device.Spec.Config.Source are nil, we still want to render an empty ignition config
-	var config *[]api.DeviceConfigSourceSpec
+	var configSource *[]api.DeviceConfigSourceSpec
 	if device.Spec != nil {
-		config = device.Spec.Config.Source
+		configSource = device.Spec.Config.Source
 	}
 
-	renderedConfig, repoNames, renderErr := renderConfig(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, config, false)
+	renderedConfigSource, repoNames, renderErr := renderConfigSource(ctx, t.resourceRef.OrgID, t.store, t.k8sClient, configSource, false)
 
 	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
 	// render the device again if the repository is updated, and then it might be fixed).
@@ -80,7 +80,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setStatus(ctx, renderErr)
 	}
 
-	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfig))
+	err = t.store.Device().UpdateRendered(ctx, t.resourceRef.OrgID, t.resourceRef.Name, string(renderedConfigSource))
 	return t.setStatus(ctx, err)
 }
 
@@ -112,7 +112,7 @@ type renderConfigArgs struct {
 	validateOnly   bool
 }
 
-func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, config *[]api.DeviceConfigSourceSpec, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
+func renderConfigSource(ctx context.Context, orgId uuid.UUID, store store.Store, k8sClient k8sclient.K8SClient, configSource *[]api.DeviceConfigSourceSpec, validateOnly bool) (renderedConfig []byte, repoNames []string, err error) {
 	args := renderConfigArgs{}
 	emptyIgnitionConfig := config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
@@ -125,7 +125,7 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sCl
 	args.store = store
 	args.k8sClient = k8sClient
 
-	err = renderConfigItems(ctx, config, &args)
+	err = renderConfigSourceItems(ctx, configSource, &args)
 	if err != nil {
 		return nil, args.repoNames, err
 	}
@@ -142,16 +142,16 @@ func renderConfig(ctx context.Context, orgId uuid.UUID, store store.Store, k8sCl
 	return renderedConfig, args.repoNames, nil
 }
 
-func renderConfigItems(ctx context.Context, config *[]api.DeviceConfigSourceSpec, args *renderConfigArgs) error {
-	if config == nil {
+func renderConfigSourceItems(ctx context.Context, configSource *[]api.DeviceConfigSourceSpec, args *renderConfigArgs) error {
+	if configSource == nil {
 		return nil
 	}
 
 	invalidConfigs := []string{}
 	var firstError error
-	for i := range *config {
-		configItem := (*config)[i]
-		name, err := renderConfigItem(ctx, &configItem, args)
+	for i := range *configSource {
+		configSourceItem := (*configSource)[i]
+		name, err := renderConfigSourceItem(ctx, &configSourceItem, args)
 		if err != nil {
 			if errors.Is(err, ErrUnknownConfigName) {
 				name = "<unknown>"
@@ -176,7 +176,7 @@ func renderConfigItems(ctx context.Context, config *[]api.DeviceConfigSourceSpec
 	return nil
 }
 
-func renderConfigItem(ctx context.Context, configItem *api.DeviceConfigSourceSpec, args *renderConfigArgs) (string, error) {
+func renderConfigSourceItem(ctx context.Context, configItem *api.DeviceConfigSourceSpec, args *renderConfigArgs) (string, error) {
 	disc, err := configItem.Discriminator()
 	if err != nil {
 		return "", fmt.Errorf("%w: failed getting discriminator: %w", ErrUnknownConfigName, err)
