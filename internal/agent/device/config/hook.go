@@ -19,8 +19,6 @@ import (
 
 const (
 	DefaultHookActionTimeout = 10 * time.Second
-	// FilePathPlaceholder is a placeholder token which will be replaced with the file path
-	FilePathPlaceholder = "__FILE_PATH__"
 )
 
 var _ HookManager = (*hookManager)(nil)
@@ -244,7 +242,8 @@ func (m *hookManager) handleHookActionExecutable(ctx context.Context, action *v1
 	}
 
 	// replace file token in args if it exists
-	args := replaceTokenInArgs(configHook.Executable.Args, FilePathPlaceholder, filePath)
+	tokenMap := newTokenMap(filePath)
+	args := replaceTokensInArgs(configHook.Executable.Args, tokenMap)
 	_, stderr, exitCode := m.exec.ExecuteWithContextFromDir(ctx, configHook.Executable.WorkDir, configHook.Executable.Path, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("failed to execute command: %s %d: %s", configHook.Executable.Path, exitCode, stderr)
@@ -338,16 +337,6 @@ func parseTimeout(timeout *string) (time.Duration, error) {
 		return DefaultHookActionTimeout, nil
 	}
 	return time.ParseDuration(*timeout)
-}
-
-// replaceTokenInArgs replaces the token with the replacement in the args slice.
-func replaceTokenInArgs(args []string, token string, replacement string) []string {
-	for i, arg := range args {
-		if arg == token {
-			args[i] = replacement
-		}
-	}
-	return args
 }
 
 // getSystemdUnitNameFromFilePath attempts to extract the systemd unit name from

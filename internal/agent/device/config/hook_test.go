@@ -88,9 +88,9 @@ func TestHookManager(t *testing.T) {
 			for _, file := range tt.configFiles {
 				switch file.op {
 				case v1alpha1.FileOperationCreate:
-					createFile(t, file.filePath)
+					createTestFile(t, file.filePath)
 				case v1alpha1.FileOperationDelete:
-					deleteFile(t, file.filePath)
+					deleteTestFile(t, file.filePath)
 				}
 			}
 			// the executable script should create the desired files giving us signal it is working as expected
@@ -106,7 +106,7 @@ func TestHookManager(t *testing.T) {
 	}
 }
 
-func createFile(t *testing.T, path string) {
+func createTestFile(t *testing.T, path string) {
 	t.Helper()
 	file, err := os.Create(path)
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func createFile(t *testing.T, path string) {
 	require.NoError(t, err)
 }
 
-func deleteFile(t *testing.T, path string) {
+func deleteTestFile(t *testing.T, path string) {
 	t.Helper()
 	err := os.Remove(path)
 	require.NoError(t, err)
