@@ -2301,9 +2301,9 @@ components:
     ConfigHookActionExecutable:
           type: object
           properties:
-            path:
+            command:
               type: string
-              description: The path to the executable file
+              description: 'The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.'
             args:
               type: array
               items:
@@ -2313,7 +2313,7 @@ components:
               type: string
               description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
           required:
-            - path
+            - command
             - args
             - workDir
     DeviceList:

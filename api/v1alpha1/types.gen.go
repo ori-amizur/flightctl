@@ -197,8 +197,8 @@ type ConfigHookActionExecutable struct {
 	// Args The arguments to pass to the executable
 	Args []string `json:"args"`
 
-	// Path The path to the executable file
-	Path string `json:"path"`
+	// Command The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
+	Command string `json:"command"`
 
 	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
 	WorkDir string `json:"workDir"`

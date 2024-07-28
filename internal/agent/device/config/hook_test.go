@@ -125,7 +125,7 @@ func newTestConfigHookActionExecutable(t *testing.T, workingDir string, execPath
 	action := v1alpha1.ConfigHookAction{}
 	actionExec := v1alpha1.ConfigHookActionExecutableSpec{
 		Executable: v1alpha1.ConfigHookActionExecutable{
-			Path:    execPath,
+			Command: execPath,
 			Args:    execArgs,
 			WorkDir: workingDir,
 		},
