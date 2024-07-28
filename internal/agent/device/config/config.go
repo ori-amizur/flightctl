@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
@@ -21,6 +22,8 @@ const (
 
 var (
 	ErrHookManagerNotInitialized = errors.New("hook manager not initialized")
+	ErrInvalidTokenFormat        = errors.New("invalid token: format")
+	ErrTokenNotSupported         = errors.New("invalid token: not supported")
 )
 
 type HookManager interface {
@@ -52,32 +55,38 @@ func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) fsnotify.Op {
 }
 
 // replaceTokensInArgs replaces tokens in the args with values from the token
-// map. This should be more efficient than using go templates for this use-case.
-func replaceTokensInArgs(args []string, tokenMap map[string]string) []string {
+// map. This should be more efficient than using go templates for this use-case
+func replaceTokensInArgs(args []string, tokenMap map[string]string) ([]string, error) {
 	var result []string
 	for _, arg := range args {
-		trimmedArg := strings.TrimSpace(arg)
-		if strings.HasPrefix(trimmedArg, "{{") && strings.HasSuffix(trimmedArg, "}}") {
-			// remove the {{ and }} from the token and trim any spaces
-			body := strings.TrimSpace(trimmedArg[2 : len(trimmedArg)-2])
-			switch body {
-			case "." + FilePathKey:
-				if tokenData, ok := tokenMap[FilePathKey]; ok {
-					result = append(result, tokenData)
-				}
-			default:
-				result = append(result, arg)
+		if strings.HasPrefix(arg, "{{") && strings.HasSuffix(arg, "}}") {
+			trimmedArg := strings.TrimSpace(arg)
+			parsedToken, err := parseToken(trimmedArg)
+			if err != nil {
+				return nil, err
+			}
+			if tokenData, ok := tokenMap[parsedToken]; ok {
+				result = append(result, tokenData)
+			} else {
+				return nil, fmt.Errorf("%w: %s", ErrTokenNotSupported, arg)
 			}
 		} else {
 			result = append(result, arg)
 		}
 	}
-
-	return result
+	return result, nil
 }
 
 func newTokenMap(filePath string) map[string]string {
 	return map[string]string{
-		"FilePath": filePath,
+		FilePathKey: filePath,
 	}
+}
+
+func parseToken(token string) (string, error) {
+	parsed := strings.TrimSpace(token[2 : len(token)-2])
+	if strings.HasPrefix(parsed, ".") {
+		return parsed[1:], nil
+	}
+	return "", fmt.Errorf("%w: %s", ErrInvalidTokenFormat, token)
 }

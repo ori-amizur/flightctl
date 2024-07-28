@@ -243,7 +243,10 @@ func (m *hookManager) handleHookActionExecutable(ctx context.Context, action *v1
 
 	// replace file token in args if it exists
 	tokenMap := newTokenMap(filePath)
-	args := replaceTokensInArgs(configHook.Executable.Args, tokenMap)
+	args, err := replaceTokensInArgs(configHook.Executable.Args, tokenMap)
+	if err != nil {
+		return err
+	}
 	_, stderr, exitCode := m.exec.ExecuteWithContextFromDir(ctx, configHook.Executable.WorkDir, configHook.Executable.Command, args...)
 	if exitCode != 0 {
 		return fmt.Errorf("failed to execute command: %s %d: %s", configHook.Executable.Command, exitCode, stderr)

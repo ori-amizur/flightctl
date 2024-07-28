@@ -12,6 +12,7 @@ func TestReplaceTokensInArgs(t *testing.T) {
 		name     string
 		args     []string
 		tokens   map[string]string
+		wantErr  error
 		expected []string
 	}{
 		{
@@ -39,22 +40,33 @@ func TestReplaceTokensInArgs(t *testing.T) {
 			expected: []string{"foo", "bar", "baz", "replaced"},
 		},
 		{
-			name:     "single token MOAR spaces",
-			args:     []string{"foo", "bar", "baz", "   {{ .FilePath    }} "},
-			tokens:   map[string]string{"FilePath": "replaced"},
-			expected: []string{"foo", "bar", "baz", "replaced"},
+			name:    "token not found",
+			args:    []string{"{{ .FilePerms }}", "foo", "bar", "baz"},
+			tokens:  map[string]string{"FilePath": "replaced"},
+			wantErr: ErrTokenNotSupported,
 		},
 		{
-			name:     "token not found",
-			args:     []string{"{{ .FilePerms }}", "foo", "bar", "baz"},
-			tokens:   map[string]string{"FilePath": "replaced"},
-			expected: []string{"{{ .FilePerms }}", "foo", "bar", "baz"},
+			name:     "multiple different tokens",
+			args:     []string{"{{ .FilePath }}", "foo", "bar", "baz", "{{ .FilePerms }}"},
+			tokens:   map[string]string{"FilePath": "replaced", "FilePerms": "0666"},
+			expected: []string{"replaced", "foo", "bar", "baz", "0666"},
+		},
+		{
+			name:    "invalid token format",
+			args:    []string{"{{ FilePath }}", "foo", "bar", "baz"},
+			tokens:  map[string]string{"FilePath": "replaced"},
+			wantErr: ErrInvalidTokenFormat,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := replaceTokensInArgs(tt.args, tt.tokens)
+			got, err := replaceTokensInArgs(tt.args, tt.tokens)
+			if tt.wantErr != nil {
+				require.ErrorIs(err, tt.wantErr)
+				return
+			}
+			require.NoError(err)
 			require.Equal(tt.expected, got)
 		})
 	}

@@ -42,8 +42,7 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 	} else {
 		// order is important here install new hooks before applying config data
 		// so they can be consumed.
-		hooks := *desired.Config.Hooks
-		if err := c.ensureHooks(&hooks); err != nil {
+		if err := c.ensureHooks(desired.Config.Hooks); err != nil {
 			return err
 		}
 	}
