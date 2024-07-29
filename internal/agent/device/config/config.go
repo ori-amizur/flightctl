@@ -29,7 +29,18 @@ var (
 type HookManager interface {
 	Run(ctx context.Context)
 	Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error)
+	WatchList() []string
+	WatchRemove(name string) error
 	ResetDefaults() error
+}
+
+type Watcher interface {
+	Add(name string) error
+	Remove(name string) error
+	List() []string
+	Events() chan fsnotify.Event // TODO: hide imlementation details
+	Errors() chan error
+	Close() error
 }
 
 type HookHandler struct {

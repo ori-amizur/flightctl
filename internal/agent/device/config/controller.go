@@ -70,8 +70,10 @@ func (c *Controller) ensureConfigData(data string) error {
 }
 
 func (c *Controller) ensureHooks(hooks *[]v1alpha1.DeviceConfigHookSpec) error {
+	newWatchPaths := make(map[string]struct{})
 	for i := range *hooks {
 		hook := (*hooks)[i]
+		newWatchPaths[hook.WatchPath] = struct{}{}
 		updated, err := c.hookManager.Update(&hook)
 		if err != nil {
 			return err
@@ -80,5 +82,16 @@ func (c *Controller) ensureHooks(hooks *[]v1alpha1.DeviceConfigHookSpec) error {
 			c.log.Infof("Updated hook: %s", hook.Name)
 		}
 	}
+
+	existingWatchPaths := c.hookManager.WatchList()
+	for _, existingWatchPath := range existingWatchPaths {
+		if _, ok := newWatchPaths[existingWatchPath]; !ok {
+			if err := c.hookManager.WatchRemove(existingWatchPath); err != nil {
+				return err
+			}
+			c.log.Infof("Removed watch: %s", existingWatchPath)
+		}
+	}
+
 	return nil
 }

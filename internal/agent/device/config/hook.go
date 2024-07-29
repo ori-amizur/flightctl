@@ -25,7 +25,7 @@ var _ HookManager = (*hookManager)(nil)
 
 type hookManager struct {
 	mu            sync.Mutex
-	watcher       *fsnotify.Watcher
+	watcher       Watcher
 	handlers      map[string]HookHandler
 	systemdClient *client.Systemd
 	exec          executer.Executer
@@ -35,7 +35,7 @@ type hookManager struct {
 
 // NewHookManager creates a new device action manager.
 func NewHookManager(log *log.PrefixLogger, exec executer.Executer) (HookManager, error) {
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := NewInotifyWatcher()
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (m *hookManager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			m.log.Infof("ctx done")
 			return
-		case event, ok := <-m.watcher.Events:
+		case event, ok := <-m.watcher.Events():
 			if !ok {
 				m.log.Debug("Watcher events channel closed")
 				return
@@ -72,7 +72,7 @@ func (m *hookManager) Run(ctx context.Context) {
 			if err != nil {
 				m.log.Errorf("error: %v", err)
 			}
-		case err, ok := <-m.watcher.Errors:
+		case err, ok := <-m.watcher.Errors():
 			if !ok {
 				m.log.Debug("Watcher errors channel closed")
 				return
@@ -93,9 +93,33 @@ func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) 
 	}
 
 	if handler, ok := m.handlers[hook.WatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
-		return true, m.addOrReplaceHookHandler(hook)
+		return true, addOrReplaceHookHandler(m.watcher, hook, m.handlers)
 	}
 	return false, nil
+}
+
+func (m *hookManager) WatchList() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.watcher.List()
+}
+
+func (m *hookManager) WatchRemove(watchPath string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.handlers == nil {
+		return ErrHookManagerNotInitialized
+	}
+
+	if _, ok := m.handlers[watchPath]; ok {
+		if err := m.watcher.Remove(watchPath); err != nil {
+			return fmt.Errorf("failed removing watch: %w", err)
+		}
+		delete(m.handlers, watchPath)
+	}
+	return nil
 }
 
 func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) error {
@@ -122,11 +146,16 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) error {
 
 		switch hookActionType {
 		case SystemdHookActionType:
-			if err := m.handleHookActionSystemd(ctx, &action, filePath); err != nil {
+			if err := handleHookActionSystemd(ctx, m.log, m.systemdClient, &action, filePath); err != nil {
 				return err
 			}
 		case ExecutableHookActionType:
-			if err := m.handleHookActionExecutable(ctx, &action, filePath); err != nil {
+			action, err := action.AsConfigHookActionExecutableSpec()
+			if err != nil {
+				return err
+			}
+
+			if err := handleHookActionExecutable(ctx, m.exec, &action, filePath); err != nil {
 				return err
 			}
 		default:
@@ -150,7 +179,7 @@ func (m *hookManager) getHandler(eventName string) *HookHandler {
 	return nil
 }
 
-func (m *hookManager) handleHookActionSystemd(ctx context.Context, action *v1alpha1.ConfigHookAction, filePath string) error {
+func handleHookActionSystemd(ctx context.Context, log *log.PrefixLogger, systemdClient *client.Systemd, action *v1alpha1.ConfigHookAction, filePath string) error {
 	configHook, err := action.AsConfigHookActionSystemdSpec()
 	if err != nil {
 		return err
@@ -167,13 +196,13 @@ func (m *hookManager) handleHookActionSystemd(ctx context.Context, action *v1alp
 		// attempt to extract the systemd unit name from the file path
 		unitName, err = getSystemdUnitNameFromFilePath(filePath)
 		if err != nil {
-			m.log.Errorf("%v: skipping...", err)
+			log.Errorf("%v: skipping...", err)
 			return nil
 		}
 	}
 
 	for _, op := range configHook.Unit.Operations {
-		if err := executeSystemdOperation(ctx, m.systemdClient, op, actionTimeout, unitName); err != nil {
+		if err := executeSystemdOperation(ctx, systemdClient, op, actionTimeout, unitName); err != nil {
 			return err
 		}
 	}
@@ -217,13 +246,8 @@ func executeSystemdOperation(ctx context.Context, systemdClient *client.Systemd,
 	return nil
 }
 
-func (m *hookManager) handleHookActionExecutable(ctx context.Context, action *v1alpha1.ConfigHookAction, filePath string) error {
-	configHook, err := action.AsConfigHookActionExecutableSpec()
-	if err != nil {
-		return err
-	}
-
-	actionTimeout, err := parseTimeout(configHook.Timeout)
+func handleHookActionExecutable(ctx context.Context, exec executer.Executer, action *v1alpha1.ConfigHookActionExecutableSpec, configFilePath string) error {
+	actionTimeout, err := parseTimeout(action.Timeout)
 	if err != nil {
 		return err
 	}
@@ -231,7 +255,7 @@ func (m *hookManager) handleHookActionExecutable(ctx context.Context, action *v1
 	ctx, cancel := context.WithTimeout(ctx, actionTimeout)
 	defer cancel()
 
-	dirExists, err := dirExists(configHook.Executable.WorkDir)
+	dirExists, err := dirExists(action.Executable.WorkDir)
 	if err != nil {
 		return err
 	}
@@ -242,23 +266,24 @@ func (m *hookManager) handleHookActionExecutable(ctx context.Context, action *v1
 	}
 
 	// replace file token in args if it exists
-	tokenMap := newTokenMap(filePath)
-	args, err := replaceTokensInArgs(configHook.Executable.Args, tokenMap)
+	tokenMap := newTokenMap(configFilePath)
+	args, err := replaceTokensInArgs(action.Executable.Args, tokenMap)
 	if err != nil {
 		return err
 	}
-	_, stderr, exitCode := m.exec.ExecuteWithContextFromDir(ctx, configHook.Executable.WorkDir, configHook.Executable.Command, args...)
+	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, action.Executable.WorkDir, action.Executable.Command, args...)
 	if exitCode != 0 {
-		return fmt.Errorf("failed to execute command: %s %d: %s", configHook.Executable.Command, exitCode, stderr)
+		return fmt.Errorf("failed to execute command: %s %d: %s", action.Executable.Command, exitCode, stderr)
 	}
 
 	return nil
 }
 
-func (m *hookManager) addOrReplaceHookHandler(hook *v1alpha1.DeviceConfigHookSpec) error {
+// addOrReplaceHookHandler adds or replaces a hook handler in the manager. this function assumes a lock is held.
+func addOrReplaceHookHandler(watcher Watcher, newHook *v1alpha1.DeviceConfigHookSpec, existingHandlers map[string]HookHandler) error {
 	// build lookup for file operations
 	opActions := make(map[fsnotify.Op][]v1alpha1.ConfigHookAction)
-	for _, action := range hook.Actions {
+	for _, action := range newHook.Actions {
 		hookActionType, err := action.Discriminator()
 		if err != nil {
 			return err
@@ -285,20 +310,21 @@ func (m *hookManager) addOrReplaceHookHandler(hook *v1alpha1.DeviceConfigHookSpe
 		}
 	}
 
+	newWatchPath := newHook.WatchPath
 	// TODO: this is a fair amount of work to do on every update, we should consider optimizing this.
-	m.handlers[hook.WatchPath] = HookHandler{
-		DeviceConfigHookSpec: hook,
+	existingHandlers[newHook.WatchPath] = HookHandler{
+		DeviceConfigHookSpec: newHook,
 		opActions:            opActions,
 	}
 
 	// watcher will error if the path is already being watched
-	for _, watchPath := range m.watcher.WatchList() {
-		if watchPath == hook.WatchPath {
+	for _, existingWatchPath := range watcher.List() {
+		if existingWatchPath == newWatchPath {
 			return nil
 		}
 	}
 
-	if err := m.watcher.Add(hook.WatchPath); err != nil {
+	if err := watcher.Add(newWatchPath); err != nil {
 		return fmt.Errorf("failed adding watch: %w", err)
 	}
 
@@ -315,7 +341,7 @@ func (m *hookManager) initialize() {
 func (m *hookManager) ResetDefaults() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, watchPath := range m.watcher.WatchList() {
+	for _, watchPath := range m.watcher.List() {
 		if err := m.watcher.Remove(watchPath); err != nil {
 			return err
 		}
@@ -332,7 +358,7 @@ func dirExists(path string) (bool, error) {
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return false, err
+	return false, fmt.Errorf("failed to check if directory exists: %w", err)
 }
 
 func parseTimeout(timeout *string) (time.Duration, error) {
