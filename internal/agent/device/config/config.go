@@ -34,10 +34,10 @@ type HookManager interface {
 	ResetDefaults() error
 }
 
-type Watcher interface {
-	Add(name string) error
-	Remove(name string) error
-	List() []string
+type FileMonitor interface {
+	WatchAdd(name string) error
+	WatchRemove(name string) error
+	WatchList() []string
 	Events() chan fsnotify.Event // TODO: hide imlementation details
 	Errors() chan error
 	Close() error

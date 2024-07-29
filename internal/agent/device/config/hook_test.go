@@ -195,10 +195,10 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
-			mockWatcher := NewMockWatcher(ctrl)
-			mockWatcher.EXPECT().List().Return(tt.existingWatchPaths)
+			mockWatcher := NewMockFileMonitor(ctrl)
+			mockWatcher.EXPECT().WatchList().Return(tt.existingWatchPaths)
 			if tt.expectAddWatch {
-				mockWatcher.EXPECT().Add(tt.newHook.WatchPath)
+				mockWatcher.EXPECT().WatchAdd(tt.newHook.WatchPath)
 			}
 
 			err := addOrReplaceHookHandler(mockWatcher, tt.newHook, tt.existingHandlers)

@@ -25,7 +25,7 @@ var _ HookManager = (*hookManager)(nil)
 
 type hookManager struct {
 	mu            sync.Mutex
-	watcher       Watcher
+	fsMonitor     FileMonitor
 	handlers      map[string]HookHandler
 	systemdClient *client.Systemd
 	exec          executer.Executer
@@ -35,13 +35,13 @@ type hookManager struct {
 
 // NewHookManager creates a new device action manager.
 func NewHookManager(log *log.PrefixLogger, exec executer.Executer) (HookManager, error) {
-	watcher, err := NewInotifyWatcher()
+	fsMonitor, err := NewNotifyFileMonitor()
 	if err != nil {
 		return nil, err
 	}
 
 	return &hookManager{
-		watcher:       watcher,
+		fsMonitor:     fsMonitor,
 		systemdClient: client.NewSystemd(exec),
 		exec:          exec,
 		log:           log,
@@ -52,7 +52,7 @@ func NewHookManager(log *log.PrefixLogger, exec executer.Executer) (HookManager,
 func (m *hookManager) Run(ctx context.Context) {
 	m.initialize()
 	defer func() {
-		if err := m.watcher.Close(); err != nil {
+		if err := m.fsMonitor.Close(); err != nil {
 			m.log.Errorf("Error closing watcher: %v", err)
 		}
 		m.log.Infof("Hook manager stopped")
@@ -63,7 +63,7 @@ func (m *hookManager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			m.log.Infof("ctx done")
 			return
-		case event, ok := <-m.watcher.Events():
+		case event, ok := <-m.fsMonitor.Events():
 			if !ok {
 				m.log.Debug("Watcher events channel closed")
 				return
@@ -72,7 +72,7 @@ func (m *hookManager) Run(ctx context.Context) {
 			if err != nil {
 				m.log.Errorf("error: %v", err)
 			}
-		case err, ok := <-m.watcher.Errors():
+		case err, ok := <-m.fsMonitor.Errors():
 			if !ok {
 				m.log.Debug("Watcher errors channel closed")
 				return
@@ -93,7 +93,7 @@ func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) 
 	}
 
 	if handler, ok := m.handlers[hook.WatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
-		return true, addOrReplaceHookHandler(m.watcher, hook, m.handlers)
+		return true, addOrReplaceHookHandler(m.fsMonitor, hook, m.handlers)
 	}
 	return false, nil
 }
@@ -102,7 +102,7 @@ func (m *hookManager) WatchList() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.watcher.List()
+	return m.fsMonitor.WatchList()
 }
 
 func (m *hookManager) WatchRemove(watchPath string) error {
@@ -114,7 +114,7 @@ func (m *hookManager) WatchRemove(watchPath string) error {
 	}
 
 	if _, ok := m.handlers[watchPath]; ok {
-		if err := m.watcher.Remove(watchPath); err != nil {
+		if err := m.fsMonitor.WatchRemove(watchPath); err != nil {
 			return fmt.Errorf("failed removing watch: %w", err)
 		}
 		delete(m.handlers, watchPath)
@@ -280,7 +280,7 @@ func handleHookActionExecutable(ctx context.Context, exec executer.Executer, act
 }
 
 // addOrReplaceHookHandler adds or replaces a hook handler in the manager. this function assumes a lock is held.
-func addOrReplaceHookHandler(watcher Watcher, newHook *v1alpha1.DeviceConfigHookSpec, existingHandlers map[string]HookHandler) error {
+func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConfigHookSpec, existingHandlers map[string]HookHandler) error {
 	// build lookup for file operations
 	opActions := make(map[fsnotify.Op][]v1alpha1.ConfigHookAction)
 	for _, action := range newHook.Actions {
@@ -318,13 +318,13 @@ func addOrReplaceHookHandler(watcher Watcher, newHook *v1alpha1.DeviceConfigHook
 	}
 
 	// watcher will error if the path is already being watched
-	for _, existingWatchPath := range watcher.List() {
+	for _, existingWatchPath := range fsMonitor.WatchList() {
 		if existingWatchPath == newWatchPath {
 			return nil
 		}
 	}
 
-	if err := watcher.Add(newWatchPath); err != nil {
+	if err := fsMonitor.WatchAdd(newWatchPath); err != nil {
 		return fmt.Errorf("failed adding watch: %w", err)
 	}
 
@@ -341,8 +341,8 @@ func (m *hookManager) initialize() {
 func (m *hookManager) ResetDefaults() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, watchPath := range m.watcher.List() {
-		if err := m.watcher.Remove(watchPath); err != nil {
+	for _, watchPath := range m.fsMonitor.WatchList() {
+		if err := m.fsMonitor.WatchRemove(watchPath); err != nil {
 			return err
 		}
 	}
