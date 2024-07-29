@@ -33,7 +33,7 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 	c.log.Debug("Syncing device configuration")
 	defer c.log.Debug("Finished syncing device configuration")
 
-	if desired.Config.Hooks == nil {
+	if desired.Config.PostHooks == nil {
 		c.log.Debug("Device resources are nil")
 		// Reset all resource alerts to default
 		if err := c.hookManager.ResetDefaults(); err != nil {
@@ -42,7 +42,7 @@ func (c *Controller) Sync(desired *v1alpha1.RenderedDeviceSpec) error {
 	} else {
 		// order is important here install new hooks before applying config data
 		// so they can be consumed.
-		if err := c.ensureHooks(desired.Config.Hooks); err != nil {
+		if err := c.ensurePostHooks(desired.Config.PostHooks); err != nil {
 			return err
 		}
 	}
@@ -69,7 +69,7 @@ func (c *Controller) ensureConfigData(data string) error {
 	return nil
 }
 
-func (c *Controller) ensureHooks(hooks *[]v1alpha1.DeviceConfigHookSpec) error {
+func (c *Controller) ensurePostHooks(hooks *[]v1alpha1.DeviceConfigHookSpec) error {
 	newWatchPaths := make(map[string]struct{})
 	for i := range *hooks {
 		hook := (*hooks)[i]

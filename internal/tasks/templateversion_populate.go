@@ -94,9 +94,6 @@ func (t *TemplateVersionPopulateLogic) getFleetAndTemplateVersion(ctx context.Co
 		return fmt.Errorf("failed fetching fleet: %w", err)
 	}
 
-	t.log.Infof("Syncing template of %s to template version %s/%s", t.resourceRef.Owner, t.resourceRef.OrgID, t.resourceRef.Name)
-	t.log.Infof("### fleet hooks: %+v", fleet.Spec.Template.Spec.Config.Hooks)
-
 	t.fleet = fleet
 
 	return nil
@@ -308,12 +305,12 @@ func (t *TemplateVersionPopulateLogic) setStatus(ctx context.Context, validation
 	if validationErr != nil {
 		t.log.Errorf("failed syncing template to template version: %v", validationErr)
 	} else {
-		t.log.Infof("#### set status hooks: %+v", t.fleet.Spec.Template.Spec.Config.Hooks)
+		t.log.Infof("#### set status hooks: %+v", t.fleet.Spec.Template.Spec.Config.PostHooks)
 		t.templateVersion.Status.Os = t.fleet.Spec.Template.Spec.Os
 		t.templateVersion.Status.Containers = t.fleet.Spec.Template.Spec.Containers
 		t.templateVersion.Status.Systemd = t.fleet.Spec.Template.Spec.Systemd
 		t.templateVersion.Status.Config.Source = &t.frozenConfigSource
-		t.templateVersion.Status.Config.Hooks = t.fleet.Spec.Template.Spec.Config.Hooks
+		t.templateVersion.Status.Config.PostHooks = t.fleet.Spec.Template.Spec.Config.PostHooks
 		t.templateVersion.Status.Resources = t.fleet.Spec.Template.Spec.Resources
 	}
 	api.SetStatusConditionByError(&t.templateVersion.Status.Conditions, api.TemplateVersionValid, "Valid", "Invalid", validationErr)

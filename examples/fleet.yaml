@@ -34,7 +34,7 @@ spec:
                     mode: 422
                     overwrite: true
                     path: "/etc/motd"
-        hooks:
+        postHooks:
           - name: "Systemd Reload Unit Hook"
             description: "A hook that automatically reloads systemd units if updated in the watched path"
             watchPath: "/etc/systemd/system"

@@ -2889,11 +2889,14 @@ components:
         data:
           type: string
           description: 'The rendered configuration data.'
-        hooks:
+        postHooks:
           type: array
           items:
             $ref: '#/components/schemas/DeviceConfigHookSpec'
-          description: 'A list of hooks to execute based on configuration changes.'
+          description: |
+            A list of hooks to execute after the configuration is applied. These
+            post-hooks enable custom behavior and integration with other systems
+            or services after the configuration changes are implemented.
     DeviceConfigSpec:
       type: object
       description: Configuration data.
@@ -2903,15 +2906,14 @@ components:
           items:
             $ref: "#/components/schemas/DeviceConfigSourceSpec"
           description: 'A list of config data resources.'
-        hooks:
+        postHooks:
           type: array
           items:
             $ref: '#/components/schemas/DeviceConfigHookSpec'
           description: |
-            A list of hooks to execute based on configuration changes. These
-            hooks define actions to be taken after the configuration is applied,
-            enabling custom behavior and integration with other systems or
-            processes.
+            A list of hooks to execute after the configuration is applied. These
+            post-hooks enable custom behavior and integration with other systems
+            or services after the configuration changes are implemented.
     DeviceSpec:
       type: object
       properties:

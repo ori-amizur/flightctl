@@ -296,11 +296,10 @@ type DeviceConfigSourceSpec struct {
 
 // DeviceConfigSpec Configuration data.
 type DeviceConfigSpec struct {
-	// Hooks A list of hooks to execute based on configuration changes. These
-	// hooks define actions to be taken after the configuration is applied,
-	// enabling custom behavior and integration with other systems or
-	// processes.
-	Hooks *[]DeviceConfigHookSpec `json:"hooks,omitempty"`
+	// PostHooks A list of hooks to execute after the configuration is applied. These
+	// post-hooks enable custom behavior and integration with other systems
+	// or services after the configuration changes are implemented.
+	PostHooks *[]DeviceConfigHookSpec `json:"postHooks,omitempty"`
 
 	// Source A list of config data resources.
 	Source *[]DeviceConfigSourceSpec `json:"source,omitempty"`
@@ -737,8 +736,10 @@ type RenderedDeviceConfigSpec struct {
 	// Data The rendered configuration data.
 	Data *string `json:"data,omitempty"`
 
-	// Hooks A list of hooks to execute based on configuration changes.
-	Hooks *[]DeviceConfigHookSpec `json:"hooks,omitempty"`
+	// PostHooks A list of hooks to execute after the configuration is applied. These
+	// post-hooks enable custom behavior and integration with other systems
+	// or services after the configuration changes are implemented.
+	PostHooks *[]DeviceConfigHookSpec `json:"postHooks,omitempty"`
 }
 
 // RenderedDeviceSpec defines model for RenderedDeviceSpec.
