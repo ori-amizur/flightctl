@@ -206,6 +206,9 @@ type ConfigHookActionExecutable struct {
 	// Command The path or name of the executable file to run. This can be the name of a binary located in $PATH, or a full path to the binary.
 	Command string `json:"command"`
 
+	// EnvVars An optional list of KEY=VALUE pairs to set as environment variables for the executable.
+	EnvVars *[]string `json:"envVars,omitempty"`
+
 	// WorkDir The directory in which the executable will be run from if it is left empty it will run from the users home directory.
 	WorkDir string `json:"workDir"`
 }

@@ -83,10 +83,10 @@ func (mr *MockExecuterMockRecorder) ExecuteWithContext(ctx, command any, args ..
 }
 
 // ExecuteWithContextFromDir mocks base method.
-func (m *MockExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir, command string, args ...string) (string, string, int) {
+func (m *MockExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, workingDir, command}
-	for _, a := range args {
+	varargs := []any{ctx, workingDir, command, args}
+	for _, a := range env {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "ExecuteWithContextFromDir", varargs...)
@@ -97,9 +97,9 @@ func (m *MockExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir
 }
 
 // ExecuteWithContextFromDir indicates an expected call of ExecuteWithContextFromDir.
-func (mr *MockExecuterMockRecorder) ExecuteWithContextFromDir(ctx, workingDir, command any, args ...any) *gomock.Call {
+func (mr *MockExecuterMockRecorder) ExecuteWithContextFromDir(ctx, workingDir, command, args any, env ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, workingDir, command}, args...)
+	varargs := append([]any{ctx, workingDir, command, args}, env...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithContextFromDir", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithContextFromDir), varargs...)
 }
 

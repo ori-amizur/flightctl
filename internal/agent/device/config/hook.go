@@ -306,7 +306,13 @@ func handleHookActionExecutable(ctx context.Context, exec executer.Executer, act
 	if err != nil {
 		return err
 	}
-	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, action.Executable.WorkDir, action.Executable.Command, args...)
+
+	var envVars []string
+	if action.Executable.EnvVars != nil {
+		envVars = *action.Executable.EnvVars
+	}
+
+	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, action.Executable.WorkDir, action.Executable.Command, args, envVars...)
 	if exitCode != 0 {
 		return fmt.Errorf("failed to execute command: %s %d: %s", action.Executable.Command, exitCode, stderr)
 	}
@@ -334,12 +340,18 @@ func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConf
 				if err != nil {
 					return err
 				}
+
 				opActions[notifyOp] = append(opActions[notifyOp], action)
 			}
 		case ExecutableHookActionType:
 			configHook, err := action.AsConfigHookActionExecutableSpec()
 			if err != nil {
 				return err
+			}
+			if configHook.Executable.EnvVars != nil {
+				if err := validateEnvVars(*configHook.Executable.EnvVars); err != nil {
+					return err
+				}
 			}
 			for _, op := range configHook.TriggerOn {
 				notifyOp, err := fileOperationToFsnotifyOp(op)
@@ -435,5 +447,28 @@ func getHandler(eventName string, handlers map[string]*HookHandler) *HookHandler
 		return handler
 	}
 
+	return nil
+}
+
+func validateEnvVars(envVars []string) error {
+	for _, envVar := range envVars {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid envVar format: should be KEY=VALUE: %s", envVar)
+		}
+		key, value := parts[0], parts[1]
+		if key == "" {
+			return fmt.Errorf("invalid envVar format: key cannot be empty: %s", envVar)
+		}
+		if strings.Contains(key, " ") {
+			return fmt.Errorf("invalid envVar format: key cannot contain spaces: %s", envVar)
+		}
+		if value == "" {
+			return fmt.Errorf("invalid envVar format: value cannot be empty: %s", envVar)
+		}
+		if key != strings.ToUpper(key) {
+			return fmt.Errorf("invalid envVar format: key must be uppercase: %s", envVar)
+		}
+	}
 	return nil
 }

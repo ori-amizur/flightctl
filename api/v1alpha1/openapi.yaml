@@ -2304,6 +2304,11 @@ components:
               items:
                 type: string
               description: The arguments to pass to the executable
+            envVars: 
+              type: array
+              items:
+                type: string
+              description: 'An optional list of KEY=VALUE pairs to set as environment variables for the executable.'
             workDir:
               type: string
               description: 'The directory in which the executable will be run from if it is left empty it will run from the users home directory.'
