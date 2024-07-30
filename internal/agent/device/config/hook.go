@@ -192,15 +192,7 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 func (m *hookManager) getHandler(eventName string) *HookHandler {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// check if the event name is a file or directory
-	paths := []string{eventName, filepath.Dir(eventName)}
-	for _, watchPath := range paths {
-		handler, exists := m.handlers[watchPath]
-		if exists {
-			return handler
-		}
-	}
-	return nil
+	return getHandler(eventName, m.handlers)
 }
 
 func (m *hookManager) initialize() {
@@ -430,4 +422,18 @@ func getSystemdUnitNameFromFilePath(filePath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("invalid systemd unit file: %s", filePath)
+}
+
+func getHandler(eventName string, handlers map[string]*HookHandler) *HookHandler {
+	// check for exact match on file
+	if handler, exists := handlers[eventName]; exists {
+		return handler
+	}
+	// fallback to dir
+	parentDir := filepath.Dir(eventName)
+	if handler, exists := handlers[parentDir]; exists {
+		return handler
+	}
+
+	return nil
 }

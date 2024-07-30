@@ -234,3 +234,59 @@ func newTestExecutableHook(t *testing.T, workingDir string, execPath string, ops
 	require.NoError(t, err)
 	return action
 }
+
+func TestGetHandler(t *testing.T) {
+	require := require.New(t)
+	tests := []struct {
+		name     string
+		handlers map[string]*HookHandler
+		events   map[string]string
+	}{
+		{
+			name: "watch on directory and file",
+			handlers: map[string]*HookHandler{
+				"/var/lib/stuff/file1": {
+					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
+						Name:      "test-hook-file1",
+						WatchPath: "/var/lib/stuff/file1",
+						Actions: []v1alpha1.ConfigHookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
+						},
+					},
+				},
+				"/var/lib/stuff": {
+					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
+						Name:      "test-hook-dir",
+						WatchPath: "/var/lib/stuff",
+						Actions: []v1alpha1.ConfigHookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
+						},
+					},
+				},
+				"/var/lib/stuff/file2": {
+					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
+						Name:      "test-hook-file2",
+						WatchPath: "/var/lib/stuff/file2",
+						Actions: []v1alpha1.ConfigHookAction{
+							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file2", "file2-content"),
+						},
+					},
+				},
+			},
+			events: map[string]string{
+				"/var/lib/stuff":       "test-hook-dir",
+				"/var/lib/stuff/file1": "test-hook-file1",
+				"/var/lib/stuff/file2": "test-hook-file2",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for eventName, expectedHookName := range tt.events {
+				handler := getHandler(eventName, tt.handlers)
+				require.Equal(expectedHookName, handler.Name)
+			}
+		})
+	}
+}
