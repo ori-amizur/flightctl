@@ -11,8 +11,16 @@ spec:
       labels:
         fleet: default
     spec:
+      os:
+        image: quay.io/redhat/rhde:9.2
       config:
         source: 
+          - name: base
+            configType: GitConfigProviderSpec
+            gitRef:
+              repository: flightctl-demos
+              targetRevision: main
+              path: /demos/basic-nginx-demo/configuration
           - name: motd-update
             configType: InlineConfigProviderSpec
             inline:
@@ -26,6 +34,20 @@ spec:
                     mode: 422
                     overwrite: true
                     path: "/etc/motd"
+        postHooks:
+          - name: "Systemd Reload Unit Hook"
+            description: "A hook that automatically reloads systemd units if updated in the watched path"
+            watchPath: "/etc/systemd/system"
+            actions:
+              - type: "Systemd"
+                triggerOn:
+                  - "Update"
+                timeout: "30s"
+                unit:
+                  name: "" # auto-discover from the file name if it is a valid systemd unit
+                  operations:
+                    - "DaemonReload"
+                    - "Restart"
       resources:
         - monitorType: CPU
           alertRules:

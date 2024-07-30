@@ -107,12 +107,10 @@ const (
 
 // Defines values for FileOperation.
 const (
-	FileOperationChangePermissions FileOperation = "ChangePermissions"
-	FileOperationCreate            FileOperation = "Create"
-	FileOperationDelete            FileOperation = "Delete"
-	FileOperationRemove            FileOperation = "Remove"
-	FileOperationRename            FileOperation = "Rename"
-	FileOperationUpdate            FileOperation = "Update"
+	FileOperationCreate FileOperation = "Create"
+	FileOperationDelete FileOperation = "Delete"
+	FileOperationRemove FileOperation = "Remove"
+	FileOperationUpdate FileOperation = "Update"
 )
 
 // Defines values for PatchRequestOp.
@@ -290,7 +288,7 @@ type DeviceApplicationsStatus struct {
 // DeviceConfigHookSpec defines model for DeviceConfigHookSpec.
 type DeviceConfigHookSpec struct {
 	Actions     []ConfigHookAction `json:"actions"`
-	Description string             `json:"description"`
+	Description *string            `json:"description,omitempty"`
 	Name        string             `json:"name"`
 
 	// WatchPath The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.

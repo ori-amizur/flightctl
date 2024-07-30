@@ -2197,7 +2197,6 @@ components:
           description: 'The path to monitor for changes in configuration files. This path can point to either a specific file or an entire directory.'
       required:
         - name
-        - description
         - actions
         - watchPath
     FileOperation:
@@ -2208,15 +2207,11 @@ components:
         - "Remove"
         - "Update"
         - "Delete"
-        - "Rename"
-        - "ChangePermissions"
       x-enum-varnames:
         - "FileOperationCreate"
         - "FileOperationRemove"
         - "FileOperationUpdate"
         - "FileOperationDelete"
-        - "FileOperationRename"
-        - "FileOperationChangePermissions"
     ConfigHookAction:
       type: object
       oneOf:

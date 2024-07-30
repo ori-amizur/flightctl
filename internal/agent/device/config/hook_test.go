@@ -49,9 +49,8 @@ func TestHookManager(t *testing.T) {
 		{
 			name: "happy path file create",
 			hook: &v1alpha1.DeviceConfigHookSpec{
-				Name:        "test-hook",
-				Description: "test hook",
-				WatchPath:   varDirPath,
+				Name:      "test-hook",
+				WatchPath: varDirPath,
 				Actions: []v1alpha1.ConfigHookAction{
 					newTestExecutableHook(t, cwd, execPath, []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, filepath.Join(varDirPath, "file1"), "file1-content"),
 				},
@@ -120,9 +119,8 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 		{
 			name: "no existing handlers add new watch",
 			newHook: &v1alpha1.DeviceConfigHookSpec{
-				Name:        "test-hook",
-				Description: "test hook",
-				WatchPath:   "/var/lib/stuff",
+				Name:      "test-hook",
+				WatchPath: "/var/lib/stuff",
 				Actions: []v1alpha1.ConfigHookAction{
 					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 				},
@@ -133,9 +131,8 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 		{
 			name: "replace existing actions for existing watch path",
 			newHook: &v1alpha1.DeviceConfigHookSpec{
-				Name:        "test-hook",
-				Description: "test hook",
-				WatchPath:   "/var/lib/stuff",
+				Name:      "test-hook",
+				WatchPath: "/var/lib/stuff",
 				Actions: []v1alpha1.ConfigHookAction{
 					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 				},
@@ -143,9 +140,8 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 			existingHandlers: map[string]*HookHandler{
 				"test-hook": {
 					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
-						Name:        "test-hook",
-						Description: "test hook",
-						WatchPath:   "/var/lib/stuff",
+						Name:      "test-hook",
+						WatchPath: "/var/lib/stuff",
 						Actions: []v1alpha1.ConfigHookAction{
 							newTestExecutableHook(t, "/var/lib/bar", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 							newTestExecutableHook(t, "/var/lib/foo", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationDelete}, "file1", "file1-content"),
@@ -165,17 +161,15 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 		{
 			name: "remove existing handler if no actions",
 			newHook: &v1alpha1.DeviceConfigHookSpec{
-				Name:        "test-hook",
-				Description: "test hook",
-				WatchPath:   "/var/lib/stuff",
-				Actions:     []v1alpha1.ConfigHookAction{}, // No actions provided
+				Name:      "test-hook",
+				WatchPath: "/var/lib/stuff",
+				Actions:   []v1alpha1.ConfigHookAction{}, // No actions provided
 			},
 			existingHandlers: map[string]*HookHandler{
 				"test-hook": {
 					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
-						Name:        "test-hook",
-						Description: "test hook",
-						WatchPath:   "/var/lib/stuff",
+						Name:      "test-hook",
+						WatchPath: "/var/lib/stuff",
 						Actions: []v1alpha1.ConfigHookAction{
 							newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 						},

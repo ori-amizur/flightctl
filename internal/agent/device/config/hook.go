@@ -138,7 +138,7 @@ func (m *hookManager) WatchRemove(watchPath string) error {
 
 func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	filePath := event.Name
-	handle := m.getHandle(filePath)
+	handle := m.getHandler(filePath)
 	if handle == nil {
 		// no handler for this event
 		return
@@ -189,7 +189,7 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	handle.SetError(errors.Join(errs...))
 }
 
-func (m *hookManager) getHandle(eventName string) *HookHandler {
+func (m *hookManager) getHandler(eventName string) *HookHandler {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// check if the event name is a file or directory
@@ -220,7 +220,7 @@ func (m *hookManager) ResetDefaults() error {
 		}
 	}
 	m.handlers = make(map[string]*HookHandler)
-	
+
 	return nil
 }
 
@@ -338,7 +338,11 @@ func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConf
 				return err
 			}
 			for _, op := range configHook.TriggerOn {
-				opActions[fileOperationToFsnotifyOp(op)] = append(opActions[fileOperationToFsnotifyOp(op)], action)
+				notifyOp, err := fileOperationToFsnotifyOp(op)
+				if err != nil {
+					return err
+				}
+				opActions[notifyOp] = append(opActions[notifyOp], action)
 			}
 		case ExecutableHookActionType:
 			configHook, err := action.AsConfigHookActionExecutableSpec()
@@ -346,7 +350,11 @@ func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConf
 				return err
 			}
 			for _, op := range configHook.TriggerOn {
-				opActions[fileOperationToFsnotifyOp(op)] = append(opActions[fileOperationToFsnotifyOp(op)], action)
+				notifyOp, err := fileOperationToFsnotifyOp(op)
+				if err != nil {
+					return err
+				}
+				opActions[notifyOp] = append(opActions[notifyOp], action)
 			}
 		default:
 			return fmt.Errorf("unknown hook action type: %s", hookActionType)

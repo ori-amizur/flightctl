@@ -71,20 +71,16 @@ func (h *HookHandler) SetError(err error) {
 	h.err = err
 }
 
-func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) fsnotify.Op {
+func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) (fsnotify.Op, error) {
 	switch op {
 	case v1alpha1.FileOperationCreate:
-		return fsnotify.Create
+		return fsnotify.Create, nil
 	case v1alpha1.FileOperationUpdate:
-		return fsnotify.Write
+		return fsnotify.Write, nil
 	case v1alpha1.FileOperationDelete:
-		return fsnotify.Remove
-	case v1alpha1.FileOperationRename:
-		return fsnotify.Rename
-	case v1alpha1.FileOperationChangePermissions:
-		return fsnotify.Chmod
+		return fsnotify.Remove, nil
 	default:
-		return fsnotify.Op(0)
+		return 0, fmt.Errorf("unsupported file operation: %s", op)
 	}
 }
 

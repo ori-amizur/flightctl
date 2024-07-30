@@ -28,7 +28,7 @@ func newHooks(log *log.PrefixLogger, manager config.HookManager) *Hooks {
 // Export returns the status of the config hooks.
 func (s *Hooks) Export(ctx context.Context, status *v1alpha1.DeviceStatus) error {
 	errs := s.manager.HandleErrors()
-	if len(errs) > 0{
+	if len(errs) > 0 {
 		status.Config.PostHooks.Summary.Status = v1alpha1.DeviceConfigPostHooksStatusDegraded
 		status.Config.PostHooks.Summary.Info = util.StrToPtr(errors.Join(errs...).Error())
 	} else {
