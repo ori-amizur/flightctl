@@ -41,6 +41,20 @@ func (m *MockHookManager) EXPECT() *MockHookManagerMockRecorder {
 	return m.recorder
 }
 
+// HandleErrors mocks base method.
+func (m *MockHookManager) HandleErrors() []error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleErrors")
+	ret0, _ := ret[0].([]error)
+	return ret0
+}
+
+// HandleErrors indicates an expected call of HandleErrors.
+func (mr *MockHookManagerMockRecorder) HandleErrors() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleErrors", reflect.TypeOf((*MockHookManager)(nil).HandleErrors))
+}
+
 // ResetDefaults mocks base method.
 func (m *MockHookManager) ResetDefaults() error {
 	m.ctrl.T.Helper()

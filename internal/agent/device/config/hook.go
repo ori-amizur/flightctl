@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,7 +27,7 @@ var _ HookManager = (*hookManager)(nil)
 type hookManager struct {
 	mu            sync.Mutex
 	fsMonitor     FileMonitor
-	handlers      map[string]HookHandler
+	handlers      map[string]*HookHandler
 	systemdClient *client.Systemd
 	exec          executer.Executer
 
@@ -61,17 +62,14 @@ func (m *hookManager) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			m.log.Infof("ctx done")
+			m.log.Errorf("Context cancelled, shutting down")
 			return
 		case event, ok := <-m.fsMonitor.Events():
 			if !ok {
 				m.log.Debug("Watcher events channel closed")
 				return
 			}
-			err := m.Handle(ctx, event)
-			if err != nil {
-				m.log.Errorf("error: %v", err)
-			}
+			m.Handle(ctx, event)
 		case err, ok := <-m.fsMonitor.Errors():
 			if !ok {
 				m.log.Debug("Watcher errors channel closed")
@@ -92,10 +90,26 @@ func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) 
 		return false, ErrHookManagerNotInitialized
 	}
 
-	if handler, ok := m.handlers[hook.WatchPath]; !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
+	handler, ok := m.handlers[hook.WatchPath]
+	if !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
 		return true, addOrReplaceHookHandler(m.fsMonitor, hook, m.handlers)
 	}
+
 	return false, nil
+}
+
+func (m *hookManager) HandleErrors() []error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var errs []error
+	for _, handler := range m.handlers {
+		if err := handler.Error(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
 func (m *hookManager) WatchList() []string {
@@ -122,76 +136,103 @@ func (m *hookManager) WatchRemove(watchPath string) error {
 	return nil
 }
 
-func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) error {
+func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	filePath := event.Name
-	handler := m.getHandler(filePath)
-	if handler == nil {
+	handle := m.getHandle(filePath)
+	if handle == nil {
 		// no handler for this event
-		return nil
+		return
 	}
 
-	actions, ok := handler.opActions[event.Op]
+	actions, ok := handle.Actions(event.Op)
 	if !ok {
-		// handler does not have any actions for this file operation
-		return nil
+		// handle does not have any actions for this file operation
+		return
 	}
 
 	// actions
+	var errs []error
 	for i := range actions {
 		action := actions[i]
 		hookActionType, err := action.Discriminator()
 		if err != nil {
-			return err
+			errs = append(errs, err)
+			continue
 		}
 
 		switch hookActionType {
 		case SystemdHookActionType:
-			if err := handleHookActionSystemd(ctx, m.log, m.systemdClient, &action, filePath); err != nil {
-				return err
+			hookAction, err := action.AsConfigHookActionSystemdSpec()
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if err := handleHookActionSystemd(ctx, m.log, m.systemdClient, &hookAction, filePath); err != nil {
+				errs = append(errs, err)
 			}
 		case ExecutableHookActionType:
-			action, err := action.AsConfigHookActionExecutableSpec()
+			hookAction, err := action.AsConfigHookActionExecutableSpec()
 			if err != nil {
-				return err
+				errs = append(errs, err)
+				continue
 			}
 
-			if err := handleHookActionExecutable(ctx, m.exec, &action, filePath); err != nil {
-				return err
+			if err := handleHookActionExecutable(ctx, m.exec, &hookAction, filePath); err != nil {
+				errs = append(errs, err)
 			}
 		default:
-			m.log.Errorf("Unknown hook action type: %s", hookActionType)
-			continue
+			errs = append(errs, fmt.Errorf("unknown hook action type: %s", hookActionType))
 		}
 	}
 
-	return nil
+	// push errors to status
+	handle.SetError(errors.Join(errs...))
 }
 
-func (m *hookManager) getHandler(eventName string) *HookHandler {
+func (m *hookManager) getHandle(eventName string) *HookHandler {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// check if the event name is a file or directory
 	paths := []string{eventName, filepath.Dir(eventName)}
 	for _, watchPath := range paths {
 		handler, exists := m.handlers[watchPath]
 		if exists {
-			return &handler
+			return handler
 		}
 	}
 	return nil
 }
 
-func handleHookActionSystemd(ctx context.Context, log *log.PrefixLogger, systemdClient *client.Systemd, action *v1alpha1.ConfigHookAction, filePath string) error {
-	configHook, err := action.AsConfigHookActionSystemdSpec()
-	if err != nil {
-		return err
+func (m *hookManager) initialize() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// initialize the handlers map here for testing observability.
+	m.handlers = make(map[string]*HookHandler)
+}
+
+func (m *hookManager) ResetDefaults() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, watchPath := range m.fsMonitor.WatchList() {
+		m.log.Infof("Removing watch: %s", watchPath)
+		if err := m.fsMonitor.WatchRemove(watchPath); err != nil {
+			return err
+		}
 	}
-	actionTimeout, err := parseTimeout(configHook.Timeout)
+	m.handlers = make(map[string]*HookHandler)
+	
+	return nil
+}
+
+func handleHookActionSystemd(ctx context.Context, log *log.PrefixLogger, systemdClient *client.Systemd, action *v1alpha1.ConfigHookActionSystemdSpec, filePath string) error {
+	actionTimeout, err := parseTimeout(action.Timeout)
 	if err != nil {
 		return err
 	}
 
 	var unitName string
-	if configHook.Unit.Name != "" {
-		unitName = configHook.Unit.Name
+	if action.Unit.Name != "" {
+		unitName = action.Unit.Name
 	} else {
 		// attempt to extract the systemd unit name from the file path
 		unitName, err = getSystemdUnitNameFromFilePath(filePath)
@@ -201,7 +242,7 @@ func handleHookActionSystemd(ctx context.Context, log *log.PrefixLogger, systemd
 		}
 	}
 
-	for _, op := range configHook.Unit.Operations {
+	for _, op := range action.Unit.Operations {
 		if err := executeSystemdOperation(ctx, systemdClient, op, actionTimeout, unitName); err != nil {
 			return err
 		}
@@ -213,6 +254,7 @@ func handleHookActionSystemd(ctx context.Context, log *log.PrefixLogger, systemd
 func executeSystemdOperation(ctx context.Context, systemdClient *client.Systemd, op v1alpha1.ConfigHookActionSystemdUnitOperations, timeout time.Duration, unitName string) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
 	switch op {
 	case v1alpha1.SystemdStart:
 		if err := systemdClient.Start(ctx, unitName); err != nil {
@@ -266,6 +308,7 @@ func handleHookActionExecutable(ctx context.Context, exec executer.Executer, act
 	}
 
 	// replace file token in args if it exists
+	// TODO: cache the map.
 	tokenMap := newTokenMap(configFilePath)
 	args, err := replaceTokensInArgs(action.Executable.Args, tokenMap)
 	if err != nil {
@@ -280,7 +323,7 @@ func handleHookActionExecutable(ctx context.Context, exec executer.Executer, act
 }
 
 // addOrReplaceHookHandler adds or replaces a hook handler in the manager. this function assumes a lock is held.
-func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConfigHookSpec, existingHandlers map[string]HookHandler) error {
+func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConfigHookSpec, existingHandlers map[string]*HookHandler) error {
 	// build lookup for file operations
 	opActions := make(map[fsnotify.Op][]v1alpha1.ConfigHookAction)
 	for _, action := range newHook.Actions {
@@ -312,7 +355,7 @@ func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConf
 
 	newWatchPath := newHook.WatchPath
 	// TODO: this is a fair amount of work to do on every update, we should consider optimizing this.
-	existingHandlers[newHook.WatchPath] = HookHandler{
+	existingHandlers[newHook.WatchPath] = &HookHandler{
 		DeviceConfigHookSpec: newHook,
 		opActions:            opActions,
 	}
@@ -328,25 +371,6 @@ func addOrReplaceHookHandler(fsMonitor FileMonitor, newHook *v1alpha1.DeviceConf
 		return fmt.Errorf("failed adding watch: %w", err)
 	}
 
-	return nil
-}
-
-func (m *hookManager) initialize() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// initialize the handlers map here for testing observability.
-	m.handlers = make(map[string]HookHandler)
-}
-
-func (m *hookManager) ResetDefaults() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, watchPath := range m.fsMonitor.WatchList() {
-		if err := m.fsMonitor.WatchRemove(watchPath); err != nil {
-			return err
-		}
-	}
-	m.handlers = make(map[string]HookHandler)
 	return nil
 }
 

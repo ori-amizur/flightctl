@@ -62,6 +62,14 @@ const (
 	SystemdStop         ConfigHookActionSystemdUnitOperations = "Stop"
 )
 
+// Defines values for DeviceConfigPostHooksStatusType.
+const (
+	DeviceConfigPostHooksStatusDegraded DeviceConfigPostHooksStatusType = "Degraded"
+	DeviceConfigPostHooksStatusError    DeviceConfigPostHooksStatusType = "Error"
+	DeviceConfigPostHooksStatusOnline   DeviceConfigPostHooksStatusType = "Online"
+	DeviceConfigPostHooksStatusUnknown  DeviceConfigPostHooksStatusType = "Unknown"
+)
+
 // Defines values for DeviceIntegrityStatusSummaryType.
 const (
 	DeviceIntegrityStatusFailed      DeviceIntegrityStatusSummaryType = "Failed"
@@ -289,6 +297,21 @@ type DeviceConfigHookSpec struct {
 	WatchPath string `json:"watchPath"`
 }
 
+// DeviceConfigPostHooksStatus defines model for DeviceConfigPostHooksStatus.
+type DeviceConfigPostHooksStatus struct {
+	Summary DeviceConfigPostHooksStatusSummary `json:"summary"`
+}
+
+// DeviceConfigPostHooksStatusSummary defines model for DeviceConfigPostHooksStatusSummary.
+type DeviceConfigPostHooksStatusSummary struct {
+	// Info Human readable information about the last device config postHooks transition.
+	Info   *string                         `json:"info,omitempty"`
+	Status DeviceConfigPostHooksStatusType `json:"status"`
+}
+
+// DeviceConfigPostHooksStatusType defines model for DeviceConfigPostHooksStatusType.
+type DeviceConfigPostHooksStatusType string
+
 // DeviceConfigSourceSpec Config data resource.
 type DeviceConfigSourceSpec struct {
 	union json.RawMessage
@@ -307,6 +330,8 @@ type DeviceConfigSpec struct {
 
 // DeviceConfigStatus defines model for DeviceConfigStatus.
 type DeviceConfigStatus struct {
+	PostHooks DeviceConfigPostHooksStatus `json:"postHooks"`
+
 	// RenderedVersion Version of the device rendered config.
 	RenderedVersion string `json:"renderedVersion"`
 }

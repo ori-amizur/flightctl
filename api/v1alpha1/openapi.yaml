@@ -2494,10 +2494,14 @@ components:
       type: object
       required:
         - renderedVersion
+        - postHooks
       properties:
         renderedVersion:
           type: string
           description: "Version of the device rendered config."
+        postHooks:
+          $ref: "#/components/schemas/DeviceConfigPostHooksStatus"
+          description: "Summary status of device config postHooks."
     DeviceSummaryStatus:
       type: object
       required:
@@ -2525,6 +2529,37 @@ components:
         - "DeviceSummaryStatusRebooting"
         - "DeviceSummaryStatusPoweredOff"
         - "DeviceSummaryStatusUnknown"
+    DeviceConfigPostHooksStatus:
+      type: object
+      required:
+        - summary
+      properties:
+        summary:
+          $ref: "#/components/schemas/DeviceConfigPostHooksStatusSummary"
+          description: "Summary status of the device config postHooks."
+    DeviceConfigPostHooksStatusSummary:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          $ref: "#/components/schemas/DeviceConfigPostHooksStatusType"
+          description: "Status of the device config postHooks."
+        info:
+          type: string
+          description: "Human readable information about the last device config postHooks transition."
+    DeviceConfigPostHooksStatusType:
+      type: string
+      enum:
+        - "Online"
+        - "Degraded"
+        - "Error"
+        - "Unknown"
+      x-enum-varnames:
+        - "DeviceConfigPostHooksStatusOnline"
+        - "DeviceConfigPostHooksStatusDegraded"
+        - "DeviceConfigPostHooksStatusError"
+        - "DeviceConfigPostHooksStatusUnknown"
     DeviceUpdatedStatus:
       type: object
       required:

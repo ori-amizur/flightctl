@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/fsnotify/fsnotify"
@@ -31,6 +32,7 @@ type HookManager interface {
 	Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error)
 	WatchList() []string
 	WatchRemove(name string) error
+	HandleErrors() []error
 	ResetDefaults() error
 }
 
@@ -38,14 +40,35 @@ type FileMonitor interface {
 	WatchAdd(name string) error
 	WatchRemove(name string) error
 	WatchList() []string
-	Events() chan fsnotify.Event // TODO: hide imlementation details
+	Events() chan fsnotify.Event // TODO: hide implementation details
 	Errors() chan error
 	Close() error
 }
 
 type HookHandler struct {
+	mu sync.Mutex
 	*v1alpha1.DeviceConfigHookSpec
 	opActions map[fsnotify.Op][]v1alpha1.ConfigHookAction
+	err       error
+}
+
+func (h *HookHandler) Actions(op fsnotify.Op) ([]v1alpha1.ConfigHookAction, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	actions, ok := h.opActions[op]
+	return actions, ok
+}
+
+func (h *HookHandler) Error() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.err
+}
+
+func (h *HookHandler) SetError(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.err = err
 }
 
 func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) fsnotify.Op {

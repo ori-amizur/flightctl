@@ -9,6 +9,13 @@ func NewDeviceStatus() DeviceStatus {
 				Status: ApplicationsSummaryStatusUnknown,
 			},
 		},
+		Config: DeviceConfigStatus{
+			PostHooks: DeviceConfigPostHooksStatus{
+				Summary: DeviceConfigPostHooksStatusSummary{
+					Status: DeviceConfigPostHooksStatusUnknown,
+				},
+			},
+		},
 		Integrity: DeviceIntegrityStatus{
 			Summary: DeviceIntegrityStatusSummary{
 				Status: DeviceIntegrityStatusUnknown,

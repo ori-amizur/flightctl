@@ -113,7 +113,7 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 	tests := []struct {
 		name               string
 		newHook            *v1alpha1.DeviceConfigHookSpec
-		existingHandlers   map[string]HookHandler
+		existingHandlers   map[string]*HookHandler
 		existingWatchPaths []string
 		expectAddWatch     bool
 	}{
@@ -127,7 +127,7 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 				},
 			},
-			existingHandlers: make(map[string]HookHandler),
+			existingHandlers: make(map[string]*HookHandler),
 			expectAddWatch:   true,
 		},
 		{
@@ -140,7 +140,7 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 					newTestExecutableHook(t, "/var/lib/stuff", "/bin/echo", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate}, "file1", "file1-content"),
 				},
 			},
-			existingHandlers: map[string]HookHandler{
+			existingHandlers: map[string]*HookHandler{
 				"test-hook": {
 					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
 						Name:        "test-hook",
@@ -170,7 +170,7 @@ func TestAddOrReplaceHookHandler(t *testing.T) {
 				WatchPath:   "/var/lib/stuff",
 				Actions:     []v1alpha1.ConfigHookAction{}, // No actions provided
 			},
-			existingHandlers: map[string]HookHandler{
+			existingHandlers: map[string]*HookHandler{
 				"test-hook": {
 					DeviceConfigHookSpec: &v1alpha1.DeviceConfigHookSpec{
 						Name:        "test-hook",

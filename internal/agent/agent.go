@@ -108,10 +108,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
+	// create config hook manager
+	configHookManager, err := config.NewHookManager(a.log, executer)
+	if err != nil {
+		return err
+	}
+
 	// create status manager
 	statusManager := status.NewManager(
 		deviceName,
 		resourceManager,
+		configHookManager,
 		executer,
 		a.log,
 	)
@@ -177,12 +184,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 		resourceManager,
 	)
-
-	// create config hook manager
-	configHookManager, err := config.NewHookManager(a.log, executer)
-	if err != nil {
-		return err
-	}
 
 	// create config controller
 	configController := config.NewController(
