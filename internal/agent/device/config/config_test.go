@@ -57,6 +57,12 @@ func TestReplaceTokensInArgs(t *testing.T) {
 			tokens:  map[string]string{"FilePath": "replaced"},
 			wantErr: ErrInvalidTokenFormat,
 		},
+		{
+			name:     "multiple tokens in arg",
+			args:     []string{"systemctl daemon-reload && systemctl enable {{ .FilePath }} && systemctl start {{ .FilePath }}"},
+			tokens:   map[string]string{"FilePath": "/var/run/quadlet.container"},
+			expected: []string{"systemctl daemon-reload && systemctl enable /var/run/quadlet.container && systemctl start /var/run/quadlet.container"},
+		},
 	}
 
 	for _, tt := range tests {

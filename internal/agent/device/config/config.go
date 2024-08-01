@@ -30,8 +30,8 @@ var (
 type HookManager interface {
 	Run(ctx context.Context)
 	Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error)
+	EnsurePostHooks([]v1alpha1.DeviceConfigHookSpec) error
 	WatchList() []string
-	WatchRemove(name string) error
 	HandleErrors() []error
 	ResetDefaults() error
 }
@@ -89,20 +89,33 @@ func fileOperationToFsnotifyOp(op v1alpha1.FileOperation) (fsnotify.Op, error) {
 func replaceTokensInArgs(args []string, tokenMap map[string]string) ([]string, error) {
 	var result []string
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "{{") && strings.HasSuffix(arg, "}}") {
-			trimmedArg := strings.TrimSpace(arg)
-			parsedToken, err := parseToken(trimmedArg)
-			if err != nil {
-				return nil, err
-			}
-			if tokenData, ok := tokenMap[parsedToken]; ok {
-				result = append(result, tokenData)
+		var out string
+		index := 0
+		for {
+			start := strings.Index(arg[index:], "{{")
+			if start == -1 {
+				out = out + arg[index:]
+				break
 			} else {
-				return nil, fmt.Errorf("%w: %s", ErrTokenNotSupported, arg)
+				end := strings.Index(arg[index+start:], "}}")
+				if end == -1 {
+					out = out + arg[index:]
+					break
+				}
+				trimmedToken := strings.TrimSpace(arg[index+start : index+start+end+2])
+				parsedToken, err := parseToken(trimmedToken)
+				if err != nil {
+					return nil, err
+				}
+				if tokenData, ok := tokenMap[parsedToken]; ok {
+					out = out + arg[index:index+start] + tokenData
+					index = index + start + end + 2
+				} else {
+					return nil, fmt.Errorf("%w: %s", ErrTokenNotSupported, trimmedToken)
+				}
 			}
-		} else {
-			result = append(result, arg)
 		}
+		result = append(result, out)
 	}
 	return result, nil
 }

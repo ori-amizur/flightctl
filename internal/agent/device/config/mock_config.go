@@ -41,6 +41,20 @@ func (m *MockHookManager) EXPECT() *MockHookManagerMockRecorder {
 	return m.recorder
 }
 
+// EnsurePostHooks mocks base method.
+func (m *MockHookManager) EnsurePostHooks(arg0 []v1alpha1.DeviceConfigHookSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnsurePostHooks", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EnsurePostHooks indicates an expected call of EnsurePostHooks.
+func (mr *MockHookManagerMockRecorder) EnsurePostHooks(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnsurePostHooks", reflect.TypeOf((*MockHookManager)(nil).EnsurePostHooks), arg0)
+}
+
 // HandleErrors mocks base method.
 func (m *MockHookManager) HandleErrors() []error {
 	m.ctrl.T.Helper()
@@ -108,20 +122,6 @@ func (m *MockHookManager) WatchList() []string {
 func (mr *MockHookManagerMockRecorder) WatchList() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WatchList", reflect.TypeOf((*MockHookManager)(nil).WatchList))
-}
-
-// WatchRemove mocks base method.
-func (m *MockHookManager) WatchRemove(name string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WatchRemove", name)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// WatchRemove indicates an expected call of WatchRemove.
-func (mr *MockHookManagerMockRecorder) WatchRemove(name any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WatchRemove", reflect.TypeOf((*MockHookManager)(nil).WatchRemove), name)
 }
 
 // MockFileMonitor is a mock of FileMonitor interface.

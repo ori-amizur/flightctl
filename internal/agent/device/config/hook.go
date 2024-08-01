@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/fsnotify/fsnotify"
+	"github.com/samber/lo"
 )
 
 const (
@@ -51,6 +52,7 @@ func NewHookManager(log *log.PrefixLogger, exec executer.Executer) (HookManager,
 
 // Run starts the hook manager and listens for events.
 func (m *hookManager) Run(ctx context.Context) {
+	m.log.Info("Running hook manager")
 	m.initialize()
 	defer func() {
 		if err := m.fsMonitor.Close(); err != nil {
@@ -80,18 +82,21 @@ func (m *hookManager) Run(ctx context.Context) {
 	}
 
 }
-
-// Update the manager with the new hook if appropriate.
 func (m *hookManager) Update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.update(hook)
+}
 
+// Update the manager with the new hook if appropriate.
+func (m *hookManager) update(hook *v1alpha1.DeviceConfigHookSpec) (bool, error) {
 	if m.handlers == nil {
 		return false, ErrHookManagerNotInitialized
 	}
 
 	handler, ok := m.handlers[hook.WatchPath]
 	if !ok || !reflect.DeepEqual(hook, handler.DeviceConfigHookSpec) {
+		m.log.Infof("adding hook for watch path %s", hook.WatchPath)
 		return true, addOrReplaceHookHandler(m.fsMonitor, hook, m.handlers)
 	}
 
@@ -113,16 +118,10 @@ func (m *hookManager) HandleErrors() []error {
 }
 
 func (m *hookManager) WatchList() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.fsMonitor.WatchList()
 }
 
-func (m *hookManager) WatchRemove(watchPath string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *hookManager) watchRemove(watchPath string) error {
 	if m.handlers == nil {
 		return ErrHookManagerNotInitialized
 	}
@@ -138,8 +137,10 @@ func (m *hookManager) WatchRemove(watchPath string) error {
 
 func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	filePath := event.Name
+	m.log.Infof("Received event for %s", event.String())
 	handle := m.getHandler(filePath)
 	if handle == nil {
+		m.log.Infof("no handler found for %s", event.String())
 		// no handler for this event
 		return
 	}
@@ -147,6 +148,7 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	actions, ok := handle.Actions(event.Op)
 	if !ok {
 		// handle does not have any actions for this file operation
+		m.log.Infof("no action for op %v", event.String())
 		return
 	}
 
@@ -177,7 +179,7 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 				continue
 			}
 
-			if err := handleHookActionExecutable(ctx, m.exec, &hookAction, filePath); err != nil {
+			if err := handleHookActionExecutable(ctx, m.log, m.exec, &hookAction, filePath); err != nil {
 				errs = append(errs, err)
 			}
 		default:
@@ -186,6 +188,9 @@ func (m *hookManager) Handle(ctx context.Context, event fsnotify.Event) {
 	}
 
 	// push errors to status
+	if err := errors.Join(errs...); err != nil {
+		m.log.Errorf("handle error: %+v", err)
+	}
 	handle.SetError(errors.Join(errs...))
 }
 
@@ -203,15 +208,47 @@ func (m *hookManager) initialize() {
 }
 
 func (m *hookManager) ResetDefaults() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, watchPath := range m.fsMonitor.WatchList() {
-		m.log.Infof("Removing watch: %s", watchPath)
-		if err := m.fsMonitor.WatchRemove(watchPath); err != nil {
-			return err
+	return m.EnsurePostHooks(nil)
+}
+
+func mergeHooks(h1, h2 []v1alpha1.DeviceConfigHookSpec) []v1alpha1.DeviceConfigHookSpec {
+	hooksMap := make(map[string]v1alpha1.DeviceConfigHookSpec)
+	for _, hook := range append(h1, h2...) {
+		h, ok := hooksMap[hook.WatchPath]
+		if ok {
+			h.Actions = append(h.Actions, hook.Actions...)
+		} else {
+			hooksMap[hook.WatchPath] = hook
 		}
 	}
-	m.handlers = make(map[string]*HookHandler)
+	return lo.Values(hooksMap)
+}
+
+func (m *hookManager) EnsurePostHooks(hooks []v1alpha1.DeviceConfigHookSpec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	newWatchPaths := make(map[string]struct{})
+	for _, hook := range mergeHooks(hooks, defaultPostHooks()) {
+		newWatchPaths[hook.WatchPath] = struct{}{}
+		updated, err := m.update(&hook)
+		if err != nil {
+			return err
+		}
+		if updated {
+			m.log.Infof("Updated hook: %s", hook.Name)
+		}
+	}
+
+	existingWatchPaths := m.WatchList()
+	for _, existingWatchPath := range existingWatchPaths {
+		if _, ok := newWatchPaths[existingWatchPath]; !ok {
+			if err := m.watchRemove(existingWatchPath); err != nil {
+				return err
+			}
+			m.log.Infof("Removed watch: %s", existingWatchPath)
+		}
+	}
 
 	return nil
 }
@@ -280,7 +317,7 @@ func executeSystemdOperation(ctx context.Context, systemdClient *client.Systemd,
 	return nil
 }
 
-func handleHookActionExecutable(ctx context.Context, exec executer.Executer, action *v1alpha1.ConfigHookActionExecutableSpec, configFilePath string) error {
+func handleHookActionExecutable(ctx context.Context, log *log.PrefixLogger, exec executer.Executer, action *v1alpha1.ConfigHookActionExecutableSpec, configFilePath string) error {
 	actionTimeout, err := parseTimeout(action.Timeout)
 	if err != nil {
 		return err
@@ -311,7 +348,7 @@ func handleHookActionExecutable(ctx context.Context, exec executer.Executer, act
 	if action.Executable.EnvVars != nil {
 		envVars = *action.Executable.EnvVars
 	}
-
+	log.Infof("executing %s with args %+v and environment variables %+v", action.Executable.Command, args, envVars)
 	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, action.Executable.WorkDir, action.Executable.Command, args, envVars...)
 	if exitCode != 0 {
 		return fmt.Errorf("failed to execute command: %s %d: %s", action.Executable.Command, exitCode, stderr)
@@ -471,4 +508,43 @@ func validateEnvVars(envVars []string) error {
 		}
 	}
 	return nil
+}
+
+func marshalExecutable(command string, args []string, envVars *[]string, workDir string, timeout string, triggerOn []v1alpha1.FileOperation) v1alpha1.ConfigHookAction {
+	cha := v1alpha1.ConfigHookActionExecutableSpec{
+		Executable: v1alpha1.ConfigHookActionExecutable{
+			Args:    args,
+			EnvVars: envVars,
+			Command: command,
+			WorkDir: workDir,
+		},
+		Timeout:   &timeout,
+		TriggerOn: triggerOn,
+	}
+	var ret v1alpha1.ConfigHookAction
+	_ = ret.FromConfigHookActionExecutableSpec(cha)
+	return ret
+}
+
+func defaultPostHooks() []v1alpha1.DeviceConfigHookSpec {
+	return []v1alpha1.DeviceConfigHookSpec{
+		{
+			Name:        "compose-action-hook",
+			WatchPath:   "/var/run/flightctl/compose",
+			Description: lo.ToPtr(""),
+			Actions: []v1alpha1.ConfigHookAction{
+				marshalExecutable("docker-compose", []string{"-f", "{{ .FilePath }}", "up", "-d"}, lo.ToPtr([]string{"DOCKER_HOST=unix:///run/podman/podman.sock"}),
+					"/var/run/flightctl/compose", "1m", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate}),
+			},
+		},
+		{
+			Name:        "quadlet-action-hook",
+			WatchPath:   "/etc/containers/systemd",
+			Description: lo.ToPtr(""),
+			Actions: []v1alpha1.ConfigHookAction{
+				marshalExecutable("bash", []string{"-c", `systemctl daemon-reload && fname=$(basename {{ .FilePath }}) && srv=$([[ "${fname##*.}" == "container" ]] && echo -n "${fname%.*}" || echo -n ${fname//./-}).service && systemctl start $srv`}, nil,
+					"/etc/containers/systemd", "1m", []v1alpha1.FileOperation{v1alpha1.FileOperationCreate, v1alpha1.FileOperationUpdate}),
+			},
+		},
+	}
 }

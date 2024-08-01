@@ -1,13 +1,7 @@
-# localhost:5000/flightctl-device:base
-#     ${IP}:5000/flightctl-device:base
-#
-# Base bootc image used for E2E testing and agent-vm with the following features:
-#
-# * User/pw: user/user
-# * Trust on our E2E CA Certificate
-# * flightctl-agent configured to talk to our e2e kind flightctl-server
+FROM quay.io/fedora/fedora-bootc:41
 
-FROM quay.io/centos-bootc/centos-bootc:stream9
+RUN mkdir -p /usr/lib/bootc/install && \
+    printf '[install]\nroot-fs-type = "xfs"\nkargs = ["audit=0"]\n' > /usr/lib/bootc/install/00-fedora.toml
 
 COPY bin/e2e-certs/ca.pem /etc/pki/ca-trust/source/anchors/
 RUN update-ca-trust
@@ -16,6 +10,12 @@ COPY bin/rpm/flightctl-agent-*.rpm /tmp/
 RUN dnf install -y /tmp/flightctl-agent-*.rpm && \
     systemctl enable flightctl-agent.service
 
+RUN dnf install -y greenboot greenboot-default-health-checks
+RUN curl -SL https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose && \
+    chmod +x /usr/local/bin/docker-compose && \
+    ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+RUN systemctl enable podman.socket
+RUN mkdir -p /var/run/flightctl/compose
 RUN useradd -ms /bin/bash user && \
     echo "user:user" | chpasswd && \
     echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers

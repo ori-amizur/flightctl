@@ -86,7 +86,6 @@ func (m *ResourceManager) Update(monitor *v1alpha1.ResourceMonitor) (bool, error
 
 func (m *ResourceManager) ResetAlertDefaults() error {
 	var errs []error
-
 	// cpu
 	cpuMonitor, err := defaultCPUResourceMonitor()
 	if err != nil {
