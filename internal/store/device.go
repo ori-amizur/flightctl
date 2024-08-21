@@ -118,13 +118,6 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *api
 	return updatedResource, err
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
-	updatedResource, _, err := retryCreateOrUpdate(func() (*api.Device, bool, bool, error) {
-		return s.createOrUpdate(orgId, resource, fieldsToUnset, fromAPI, ModeUpdateOnly, callback)
-	})
-	return updatedResource, err
-}
-
 func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error) {
 	var devices model.DeviceList
 	var nextContinue *string
@@ -277,6 +270,80 @@ func (s *DeviceStore) createOrUpdate(orgId uuid.UUID, resource *api.Device, fiel
 
 	updatedResource := device.ToApiResource()
 	return &updatedResource, !exists, false, nil
+}
+
+func params(device *model.Device) map[string]any {
+	ret := make(map[string]any)
+	ret["name"] = device.Name
+	ret["org_id"] = device.OrgID
+	ret["owner"] = lo.FromPtr(device.Owner)
+	ret["spec"] = device.Spec
+	ret["labels"] = device.Labels
+	return ret
+}
+
+func setList(device *model.Device, fieldsToUnset []string) string {
+	var parts []string
+	parts = append(parts, "spec = @spec")
+	if len(lo.FromPtr(device.Owner)) > 0 {
+		parts = append(parts, "owner = @owner")
+	}
+	if device.Labels != nil {
+		parts = append(parts, "labels = @labels")
+	}
+	for _, f := range fieldsToUnset {
+		parts = append(parts, fmt.Sprintf("%s = null", f))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error) {
+	if resource == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	if resource.Metadata.Name == nil {
+		return nil, flterrors.ErrResourceNameIsNil
+	}
+
+	device, err := model.NewDeviceFromApiResource(resource)
+	if err != nil {
+		return nil, err
+	}
+	device.OrgID = orgId
+
+	// Use the dedicated API to update annotations
+	device.Annotations = nil
+
+	paramsMap := params(device)
+	setStr := setList(device, fieldsToUnset)
+	query := fmt.Sprintf(`WITH prev_record AS (SELECT * FROM devices WHERE org_id = @org_id AND name = @name FOR UPDATE),
+              new_record AS (UPDATE devices
+              SET
+              resource_version = resource_version + 1,
+              generation = generation + (SELECT count (*) FROM prev_record WHERE spec != @spec),
+              %s
+              WHERE org_id = @org_id AND name = @name %s
+              RETURNING *)
+              SELECT * FROM prev_record
+              UNION ALL
+              SELECT * FROM new_record
+              `, setStr, lo.Ternary(fromAPI, "AND (owner is null OR LENGTH(owner) = 0 OR spec = @spec)", ""))
+	var devices []*model.Device
+	if err := s.db.Raw(query, paramsMap).Scan(&devices).Error; err != nil {
+		return nil, flterrors.ErrorFromGormError(err)
+	}
+	switch len(devices) {
+	case 0:
+		return nil, flterrors.ErrResourceNotFound
+	case 1:
+		return nil, flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+	case 2:
+		break
+	default:
+		return nil, fmt.Errorf("unexpected number of records: %d", len(devices))
+	}
+	callback(devices[0], devices[1])
+	return lo.ToPtr(devices[1].ToApiResource()), nil
 }
 
 func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error) {
