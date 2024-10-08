@@ -1,0 +1,439 @@
+package device_selection
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+
+	"github.com/flightctl/flightctl/api/v1alpha1"
+	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/google/uuid"
+	"github.com/samber/lo"
+)
+
+const (
+	DefaultSuccessThreshold = 90
+	Unknown                 = "Unknown"
+	ApplyingUpdate          = "ApplyingUpdate"
+	Rebooting               = "Rebooting"
+	ActivatingConfig        = "ActivatingConfig"
+	RollingBack             = "RollingBack"
+	Error                   = "Error"
+)
+
+func newBatchSequenceSelector(sequence v1alpha1.BatchSequence, store store.Store, orgId uuid.UUID, fleet *v1alpha1.Fleet, templateVersionName string) RolloutDeviceSelector {
+	return &batchSequenceSelector{
+		BatchSequence:       sequence,
+		store:               store,
+		orgId:               orgId,
+		fleetName:           lo.FromPtr(fleet.Metadata.Name),
+		fleet:               fleet,
+		templateVersionName: templateVersionName,
+	}
+}
+
+type batchSequenceSelector struct {
+	v1alpha1.BatchSequence
+	store               store.Store
+	orgId               uuid.UUID
+	fleet               *v1alpha1.Fleet
+	fleetName           string
+	templateVersionName string
+}
+
+func (b *batchSequenceSelector) getAnnotation(annotation string) (string, bool) {
+	annotations := lo.FromPtr(b.fleet.Metadata.Annotations)
+	if annotations == nil {
+		return "", false
+	}
+	v, exists := annotations[annotation]
+	return v, exists
+}
+
+func (b *batchSequenceSelector) IsRolloutNew() bool {
+	dtv, exists := b.getAnnotation(model.FleetAnnotationDeployingTemplateVersion)
+	if !exists {
+		return true
+	}
+	return b.templateVersionName != dtv
+}
+
+func (b *batchSequenceSelector) OnNewRollout(ctx context.Context) error {
+	annotations := map[string]string{
+		model.FleetAnnotationDeployingTemplateVersion: b.templateVersionName,
+	}
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+}
+
+func (b *batchSequenceSelector) getCurrentBatch(ctx context.Context) (int, error) {
+	fleet, err := b.store.Fleet().Get(ctx, b.orgId, b.fleetName)
+	if err != nil {
+		return 0, err
+	}
+	annotations := lo.FromPtr(fleet.Metadata.Annotations)
+	if annotations == nil {
+		return 0, fmt.Errorf("couldn't get fleet %s/%s", b.orgId.String(), b.fleetName)
+	}
+	currentBatchStr, exists := annotations[model.FleetAnnotationBatchNumber]
+	if !exists {
+		return -1, nil
+	}
+	currentBatch, err := strconv.ParseInt(currentBatchStr, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(currentBatch), nil
+}
+
+func (b *batchSequenceSelector) setCurrentBatch(ctx context.Context, currentBatch int) error {
+	annotations := map[string]string{
+		model.FleetAnnotationBatchNumber: strconv.FormatInt(int64(currentBatch), 10),
+	}
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+}
+
+func (b *batchSequenceSelector) HasMoreSelections(ctx context.Context) (bool, error) {
+	currentBatch, err := b.getCurrentBatch(ctx)
+	if err != nil {
+		return false, err
+	}
+	return currentBatch < len(lo.FromPtr(b.Sequence)), nil
+}
+
+func (b *batchSequenceSelector) Advance(ctx context.Context) error {
+	currentBatch, err := b.getCurrentBatch(ctx)
+	if err != nil {
+		return err
+	}
+	selection, err := b.currentSelection(ctx, currentBatch)
+	if err != nil {
+		return err
+	}
+	if err = selection.unmark(ctx); err != nil {
+		return err
+	}
+	nextBatch := currentBatch + 1
+	if nextBatch > len(lo.FromPtr(b.Sequence)) {
+		return fmt.Errorf("batch number overflow")
+	}
+	selection, err = b.currentSelection(ctx, nextBatch)
+	if err != nil {
+		return err
+	}
+	if err = b.setCurrentBatch(ctx, nextBatch); err != nil {
+		return fmt.Errorf("failed to set current batch")
+	}
+	if err = selection.mark(ctx); err != nil {
+		return err
+	}
+	return b.clearApproval(ctx)
+}
+
+func (b *batchSequenceSelector) clearApproval(ctx context.Context) error {
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, make(map[string]string), []string{model.FleetAnnotationRolloutApproved})
+}
+
+func (b *batchSequenceSelector) resetApproval(ctx context.Context) error {
+	annotations := map[string]string{
+		model.FleetAnnotationRolloutApprovalMethod: "manual",
+	}
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, []string{model.FleetAnnotationRolloutApproved})
+}
+
+func (b *batchSequenceSelector) currentSelection(ctx context.Context, currentBatch int) (*batchSelection, error) {
+	var batch *v1alpha1.Batch
+	if currentBatch < -1 || currentBatch > len(lo.FromPtr(b.Sequence)) {
+		return nil, fmt.Errorf("batch number out of bounds")
+	}
+	fleet, err := b.store.Fleet().Get(ctx, b.orgId, b.fleetName)
+	if err != nil {
+		return nil, err
+	}
+	if currentBatch >= 0 && currentBatch < len(lo.FromPtr(b.Sequence)) {
+		batch = lo.ToPtr(lo.FromPtr(b.Sequence)[currentBatch])
+	}
+	return &batchSelection{
+		batch:               batch,
+		store:               b.store,
+		orgId:               b.orgId,
+		fleetName:           b.fleetName,
+		templateVersionName: b.templateVersionName,
+		fleet:               fleet,
+	}, nil
+}
+
+func (b *batchSequenceSelector) CurrentSelection(ctx context.Context) (Selection, error) {
+	currentBatch, err := b.getCurrentBatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return b.currentSelection(ctx, currentBatch)
+}
+
+func (b *batchSequenceSelector) UnmarkRolloutSelection(ctx context.Context) error {
+	return b.store.Device().UnmarkRolloutSelection(ctx, b.orgId, b.fleetName)
+}
+
+func (b *batchSequenceSelector) Reset(ctx context.Context) error {
+	if err := b.UnmarkRolloutSelection(ctx); err != nil {
+		return err
+	}
+	if err := b.resetApproval(ctx); err != nil {
+		return err
+	}
+	return b.setCurrentBatch(ctx, -1)
+}
+
+type batchSelection struct {
+	batch               *v1alpha1.Batch
+	store               store.Store
+	orgId               uuid.UUID
+	fleetName           string
+	templateVersionName string
+	fleet               *v1alpha1.Fleet
+}
+
+func (b *batchSelection) getAnnotation(annotation string) (string, bool) {
+	annotations := lo.FromPtr(b.fleet.Metadata.Annotations)
+	if annotations == nil {
+		return "", false
+	}
+	v, exists := annotations[annotation]
+	return v, exists
+}
+
+func (b *batchSelection) IsApproved() bool {
+	approvedStr, exists := b.getAnnotation(model.FleetAnnotationRolloutApproved)
+	if !exists {
+		return false
+	}
+	return approvedStr == "true"
+}
+
+func (b *batchSelection) IsRolledOut(ctx context.Context) (bool, error) {
+	count, err := b.store.Device().Count(ctx, b.orgId, store.ListParams{
+		Filter: map[string][]any{
+			"selected_for_rollout": {true},
+		},
+		AnnotationsMatchExpressions: v1alpha1.MatchExpressions{
+			{
+				Operator: v1alpha1.NotIn,
+				Key:      model.DeviceAnnotationTemplateVersion,
+				Values:   &[]string{b.templateVersionName},
+			},
+		},
+		Owners: []string{
+			fmt.Sprintf("%s/%s", model.FleetKind, b.fleetName),
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
+func (b *batchSelection) getSuccessThreshold() (int, error) {
+	var (
+		ret int
+		err error
+	)
+	successThreshold := lo.Ternary(b.batch.SuccessThreshold != nil, b.batch.SuccessThreshold, b.fleet.Spec.RolloutPolicy.SuccessThreshold)
+	if successThreshold != nil {
+		ret, err = v1alpha1.PercentageAsInt(*successThreshold)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		ret = DefaultSuccessThreshold
+	}
+	return ret, nil
+}
+
+func (b *batchSelection) getLastSuccessPercentage() (int, bool, error) {
+	percentageStr, exists := b.getAnnotation(model.FleetAnnotationLastBatchSuccessPercentage)
+	if !exists {
+		return 0, false, nil
+	}
+	ret, err := strconv.ParseInt(percentageStr, 10, 64)
+	if err != nil {
+		return 0, false, err
+	}
+	return int(ret), true, nil
+}
+
+func (b *batchSelection) MayApproveAutomatically() (bool, error) {
+	approvalMethod, exists := b.getAnnotation(model.FleetAnnotationRolloutApprovalMethod)
+	if !exists || approvalMethod != "automatic" {
+		return false, nil
+	}
+	successThreshold, err := b.getSuccessThreshold()
+	if err != nil {
+		return false, nil
+	}
+	lastSuccessPercentage, exists, err := b.getLastSuccessPercentage()
+	if err != nil || !exists {
+		return false, err
+	}
+
+	return lastSuccessPercentage >= successThreshold, nil
+}
+
+func (b *batchSelection) Approve(ctx context.Context) error {
+	annotations := map[string]string{
+		model.FleetAnnotationRolloutApproved: "true",
+	}
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+}
+
+func isInUpdate(reason string) bool {
+	return lo.Contains([]string{Rebooting, ActivatingConfig, ApplyingUpdate, RollingBack}, reason)
+}
+
+func (b *batchSelection) IsComplete(ctx context.Context) (bool, error) {
+	if b.batch == nil {
+		return true, nil
+	}
+	// TODO: Add timeout check
+	counts, err := b.store.Device().CompletionCounts(ctx, b.orgId, fmt.Sprintf("%s/%s", model.FleetKind, b.fleetName))
+	if err != nil {
+		return false, err
+	}
+	total := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+		return lo.Ternary(c.RenderedVersion == b.templateVersionName || c.SummaryStatus != Unknown || isInUpdate(c.UpdatingReason), c.Count, 0)
+	}))
+	complete := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+		return lo.Ternary(c.RenderedVersion == b.templateVersionName || c.SummaryStatus != Unknown && c.UpdatingReason == Error, c.Count, 0)
+	}))
+	return total == complete, nil
+}
+
+func (b *batchSelection) SetSuccessPercentage(ctx context.Context) error {
+	if b.batch == nil {
+		return nil
+	}
+	counts, err := b.store.Device().CompletionCounts(ctx, b.orgId, fmt.Sprintf("%s/%s", model.FleetKind, b.fleetName))
+	if err != nil {
+		return err
+	}
+	total := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+		return lo.Ternary(c.RenderedVersion == b.templateVersionName || c.SummaryStatus != Unknown || isInUpdate(c.UpdatingReason), c.Count, 0)
+	}))
+	successful := lo.Sum(lo.Map(counts, func(c store.CompletionCount, _ int) int64 {
+		return lo.Ternary(c.RenderedVersion == b.templateVersionName, c.Count, 0)
+	}))
+	if total == 0 {
+		return nil
+	}
+	successPercentage := successful * 100 / total
+	annotations := map[string]string{
+		model.FleetAnnotationLastBatchSuccessPercentage: strconv.FormatInt(successPercentage, 10),
+	}
+	return b.store.Fleet().UpdateAnnotations(ctx, b.orgId, b.fleetName, annotations, nil)
+}
+
+func (b *batchSelection) labelSelector() store.ListParams {
+	ret := store.ListParams{
+		Owners: []string{
+			fmt.Sprintf("%s/%s", model.FleetKind, b.fleetName),
+		},
+	}
+	if b.batch != nil && b.batch.Selector != nil {
+		ret.Labels = lo.FromPtr(b.batch.Selector.MatchLabels)
+		ret.LabelMatchExpressions = lo.FromPtr(b.batch.Selector.MatchExpressions)
+	}
+	return ret
+}
+
+func (b *batchSelection) notRolledOutSelector() store.ListParams {
+	ret := b.labelSelector()
+	ret.AnnotationsMatchExpressions = v1alpha1.MatchExpressions{
+		{
+			Key:      model.DeviceAnnotationTemplateVersion,
+			Operator: v1alpha1.NotIn,
+			Values:   lo.ToPtr([]string{b.templateVersionName}),
+		},
+	}
+	return ret
+}
+
+func (b *batchSelection) rolledOutSelector() store.ListParams {
+	ret := b.labelSelector()
+	ret.AnnotationsMatchExpressions = v1alpha1.MatchExpressions{
+		{
+			Key:      model.DeviceAnnotationTemplateVersion,
+			Operator: v1alpha1.In,
+			Values:   lo.ToPtr([]string{b.templateVersionName}),
+		},
+	}
+	return ret
+}
+
+func (b *batchSelection) batchCounts(ctx context.Context) (int, int, error) {
+	total, err := b.store.Device().Count(ctx, b.orgId, b.labelSelector())
+	if err != nil {
+		return 0, 0, err
+	}
+	rolledOut, err := b.store.Device().Count(ctx, b.orgId, b.rolledOutSelector())
+	if err != nil {
+		return 0, 0, err
+	}
+	return int(rolledOut), int(total), nil
+}
+
+func (b *batchSelection) calculateLimit(ctx context.Context) (*int, error) {
+	if b.batch == nil || b.batch.Limit == nil {
+		return nil, nil
+	}
+	unifiedBatchLimit := *b.batch.Limit
+	intBatchLimit, intErr := unifiedBatchLimit.AsBatchLimit1()
+	if intErr == nil {
+		return &intBatchLimit, nil
+	}
+	percentageStr, pErr := unifiedBatchLimit.AsPercentage()
+	if pErr != nil {
+		return nil, errors.Join(intErr, pErr)
+	}
+	percentage, err := v1alpha1.PercentageAsInt(percentageStr)
+	if err != nil {
+		return nil, err
+	}
+	rolledOut, total, err := b.batchCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := int(math.Round(float64(total)*float64(percentage)/100.0)) - rolledOut
+	return &res, nil
+}
+
+func (b *batchSelection) unmark(ctx context.Context) error {
+	return b.store.Device().UnmarkRolloutSelection(ctx, b.orgId, b.fleetName)
+}
+
+func (b *batchSelection) mark(ctx context.Context) error {
+	if b.batch == nil {
+		return nil
+	}
+	limit, err := b.calculateLimit(ctx)
+	if err != nil {
+		return err
+	}
+	if limit != nil && *limit <= 0 {
+		// Limit already reached.  Do not mark any device for rollout
+		return nil
+	}
+	return b.store.Device().MarkRolloutSelection(ctx, b.orgId, b.notRolledOutSelector(), limit)
+}
+
+func (b *batchSelection) Devices(ctx context.Context) (*v1alpha1.DeviceList, error) {
+	return b.store.Device().List(ctx, b.orgId, store.ListParams{
+		Filter: map[string][]any{
+			"selected_for_rollout": {true},
+		},
+		Owners: []string{
+			fmt.Sprintf("%s/%s", model.FleetKind, b.fleetName),
+		},
+	})
+}

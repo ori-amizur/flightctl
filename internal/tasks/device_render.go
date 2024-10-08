@@ -45,6 +45,7 @@ type DeviceRenderLogic struct {
 	templateVersion *string
 	deviceConfig    *[]api.ConfigProviderSpec
 	applications    *[]api.ApplicationSpec
+	device          *api.Device
 }
 
 func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogger, store store.Store, k8sClient k8sclient.K8SClient, configStorage ConfigStorage, resourceRef ResourceReference) DeviceRenderLogic {
@@ -52,12 +53,15 @@ func NewDeviceRenderLogic(callbackManager CallbackManager, log logrus.FieldLogge
 }
 
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
+	var err error
 	t.log.Infof("Rendering device %s/%s", t.resourceRef.OrgID, t.resourceRef.Name)
 
-	device, err := t.store.Device().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
+	t.device, err = t.store.Device().Get(ctx, t.resourceRef.OrgID, t.resourceRef.Name)
 	if err != nil {
 		return fmt.Errorf("failed getting device %s/%s: %w", t.resourceRef.OrgID, t.resourceRef.Name, err)
 	}
+
+	device := t.device
 
 	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
 	if device.Spec != nil {
@@ -124,6 +128,17 @@ func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) erro
 	err := t.store.Device().SetServiceConditions(ctx, t.resourceRef.OrgID, t.resourceRef.Name, []api.Condition{condition})
 	if err != nil {
 		t.log.Errorf("Failed setting condition for device %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
+	}
+	if renderErr == nil {
+		annotations := lo.FromPtr(t.device.Metadata.Annotations)
+		if annotations != nil && lo.HasKey(annotations, model.DeviceAnnotationTemplateVersion) {
+			updateAnnotations := map[string]string{
+				model.DeviceAnnotationRenderedTemplateVersion: annotations[model.DeviceAnnotationTemplateVersion],
+			}
+			if err = t.store.Device().UpdateAnnotations(ctx, t.resourceRef.OrgID, t.resourceRef.Name, updateAnnotations, nil); err != nil {
+				t.log.Errorf("Failed setting annotation for device %s/%s: %v", t.resourceRef.OrgID, t.resourceRef.Name, err)
+			}
+		}
 	}
 	return renderErr
 }

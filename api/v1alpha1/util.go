@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/samber/lo"
 )
@@ -122,6 +124,18 @@ func getApplicationType(union json.RawMessage) (ApplicationProviderType, error) 
 	}
 
 	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+}
+
+func PercentageAsInt(p Percentage) (int, error) {
+	index := strings.Index(p, "%")
+	if index <= 0 {
+		return 0, fmt.Errorf("%s is not in percentage format", p)
+	}
+	percentage, err := strconv.ParseInt(p[:index], 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int(percentage), nil
 }
 
 func configsAreEqual(c1, c2 *[]ConfigProviderSpec) bool {

@@ -25,6 +25,11 @@ type Device interface {
 	Create(ctx context.Context, orgId uuid.UUID, device *api.Device, callback DeviceStoreCallback) (*api.Device, error)
 	Update(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DeviceList, error)
+	Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error)
+	UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error
+	MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error
+	CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string) ([]CompletionCount, error)
+	CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, modifiers ...queryModifier) ([]map[string]any, error)
 	Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*api.Device, error)
 	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *api.Device, fieldsToUnset []string, fromAPI bool, callback DeviceStoreCallback) (*api.Device, bool, error)
@@ -197,6 +202,112 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams List
 
 	apiDevicelist := devices.ToApiResource(nextContinue, numRemaining)
 	return &apiDevicelist, ErrorFromGormError(result.Error)
+}
+
+func (s *DeviceStore) Count(ctx context.Context, orgId uuid.UUID, listParams ListParams) (int64, error) {
+	query, err := ListQuery(&model.DeviceList{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return 0, err
+	}
+	var devicesCount int64
+	if err := query.Count(&devicesCount).Error; err != nil {
+		return 0, ErrorFromGormError(err)
+	}
+	return devicesCount, nil
+}
+
+type CompletionCount struct {
+	Count           int64
+	RenderedVersion string
+	UpdatingReason  string
+	SummaryStatus   string
+}
+
+func (s *DeviceStore) CompletionCounts(ctx context.Context, orgId uuid.UUID, owner string) ([]CompletionCount, error) {
+	var results []CompletionCount
+	err := s.db.Raw(`select count(*) as count, 
+                                 status -> 'config' ->> 'renderedVersion' as rendered_version, 
+                                 elem ->> 'reason' as updating_reason,
+                                 status -> 'summary' ->> 'status' as summary_status
+                          from devices d LEFT JOIN LATERAL (
+                            SELECT elem
+						    FROM jsonb_array_elements(d.status->'conditions') AS elem
+						    WHERE elem->>'type' = 'Updating'
+						    LIMIT 1
+							) subquery ON TRUE
+						     where
+						       selected_for_rollout = true and org_id = ? and owner = ? group by rendered_version, updating_reason, summary_status`, orgId, owner).Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	return results, nil
+}
+
+func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
+	err := s.db.Model(&model.Device{}).Where("org_id = ? and owner = ?", orgId, fmt.Sprintf("%s/%s", model.FleetKind, fleetName)).Update("selected_for_rollout", nil).Error
+	return ErrorFromGormError(err)
+}
+
+func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams ListParams, limit *int) error {
+	query, err := ListQuery(&model.Device{}).Build(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return err
+	}
+	if limit != nil {
+		query = query.Limit(*limit)
+	}
+	err = s.db.Model(&model.Device{}).Where("org_id = ? and name in (?)", orgId,
+		query.Select("name")).Update("selected_for_rollout", true).Error
+	return ErrorFromGormError(err)
+}
+
+// How many in the fleet
+// How many in the batch
+// How many are busy
+func labelKeyToSymbol(labelKey string) string {
+	return strings.Replace(strings.Replace(labelKey, "-", "_dash_", -1), "/", "_slash_", -1)
+}
+
+func createLabelJoins(query *gorm.DB, groupBy []string) *gorm.DB {
+	format := `JOIN LATERAL (
+    SELECT substr(label, length('%s=')+1) AS %s
+    FROM UNNEST(labels) AS label
+    WHERE substr(label, 1, length('%s') + 1) = '%s='
+    LIMIT 1) AS %s_tab ON true`
+	return query.Joins(strings.Join(lo.Map(groupBy, func(labelKey string, _ int) string {
+		labelSymbol := labelKeyToSymbol(labelKey)
+		return fmt.Sprintf(format, labelKey, labelSymbol, labelKey, labelKey, labelSymbol)
+	}), " "))
+}
+
+func (s *DeviceStore) CountByLabels(ctx context.Context, orgId uuid.UUID, listParams ListParams, groupBy []string, modifiers ...queryModifier) ([]map[string]any, error) {
+	query, err := ListQuery(&model.DeviceList{}).BuildNoOrder(ctx, s.db, orgId, listParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range modifiers {
+		query = m(query)
+	}
+	labelSymbols := lo.Map(groupBy, func(s string, _ int) string { return labelKeyToSymbol(s) })
+	selectList := append(labelSymbols, "count(*) as count")
+	query.Select(strings.Join(selectList, ","))
+	for _, g := range labelSymbols {
+		query = query.Group(g)
+	}
+	if len(groupBy) > 0 {
+		query = createLabelJoins(query, groupBy)
+	}
+	var results []map[string]any
+	err = query.Debug().Scan(&results).Error
+	if err != nil {
+		return nil, ErrorFromGormError(err)
+	}
+	ret := lo.Map(results, func(m map[string]any, _ int) map[string]any {
+		return lo.SliceToMap(append(groupBy, "count"), func(s string) (string, any) {
+			return s, m[labelKeyToSymbol(s)]
+		})
+	})
+	return ret, nil
 }
 
 func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*api.DevicesSummary, error) {

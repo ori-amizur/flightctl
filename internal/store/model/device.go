@@ -10,6 +10,17 @@ import (
 	"github.com/samber/lo"
 )
 
+var (
+	DeviceAPI      = "v1alpha1"
+	DeviceKind     = "Device"
+	DeviceListKind = "DeviceList"
+
+	DeviceAnnotationTemplateVersion         = "device-controller/templateVersion"
+	DeviceAnnotationRenderedVersion         = "device-controller/renderedVersion"
+	DeviceAnnotationRenderedTemplateVersion = "device-controller/renderedTemplateVersion"
+	DeviceAnnotationConsole                 = "device-controller/console"
+)
+
 type Device struct {
 	Resource
 
@@ -33,6 +44,9 @@ type Device struct {
 
 	// Join table with the relationship of devices to repositories (only maintained for standalone devices)
 	Repositories []Repository `gorm:"many2many:device_repos;constraint:OnDelete:CASCADE;"`
+
+	// Indicate if the current device is selected for rollout
+	SelectedForRollout *bool
 }
 
 type ServiceConditions struct {
