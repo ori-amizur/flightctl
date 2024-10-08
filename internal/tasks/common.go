@@ -29,6 +29,7 @@ type ResourceReference struct {
 	Kind     string
 	Name     string
 	Owner    string
+	UserData any `json:"userData,omitempty"`
 }
 
 var (

@@ -4314,7 +4314,11 @@ components:
     BatchSequence:
       type: object
       description: BatchSequence defines the list of batches to be executed in sequence.
+      required:
+        - strategy
       properties:
+        strategy:
+          type: string
         sequence:
           type: array
           description: A list of batch definitions.
@@ -4325,12 +4329,6 @@ components:
     RolloutDeviceSelection:
       type: object
       description: Describes how to select devices for rollout.
-      required:
-        - strategy
-      properties:
-        strategy:
-          type: string
-          description: The rollout strategy to use.
       oneOf:
         - $ref: '#/components/schemas/BatchSequence'
       discriminator:
