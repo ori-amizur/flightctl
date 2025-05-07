@@ -624,7 +624,7 @@ func validateHttpConfig(config *HttpConfig) []error {
 		}
 
 		if config.Token != nil {
-			errs = append(errs, validation.ValidateBearerToken(config.Token, "spec.httpConfig.token")...)
+			errs = append(errs, validation.ValidateString(config.Token, "spec.httpConfig.token", 5, 256, nil, "")...)
 		}
 	}
 	return errs
