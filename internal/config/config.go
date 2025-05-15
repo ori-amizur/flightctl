@@ -41,7 +41,7 @@ type svcConfig struct {
 	BaseUrl                string        `json:"baseUrl,omitempty"`
 	BaseAgentEndpointUrl   string        `json:"baseAgentEndpointUrl,omitempty"`
 	BaseUIUrl              string        `json:"baseUIUrl,omitempty"`
-	SrvCertFile            string        `json:"srvCertificateFile,omitempty"`
+	SrvCertFile            string        `json:"srvCertFile,omitempty"`
 	SrvKeyFile             string        `json:"srvKeyFile,omitempty"`
 	ServerCertName         string        `json:"serverCertName,omitempty"`
 	ServerCertValidityDays int           `json:"serverCertValidityDays,omitempty"`

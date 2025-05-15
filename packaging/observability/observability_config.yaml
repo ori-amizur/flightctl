@@ -1,0 +1,36 @@
+# /etc/flightctl-observability/observability_config.yaml
+# Customizable values for Flightctl Observability RPM
+
+# --- Grafana Configuration ---
+grafana:
+  # Grafana published port on the host
+  published_port: 3000
+
+  # --- OAuth Configuration for Grafana ---
+  oauth:
+    # Set to true to enable OAuth login for Grafana, false to disable.
+    # If true, only OAuth login will be available. If false, only local login will be available.
+    enabled: false
+
+    # Keycloak / OIDC Provider Base URL (e.g., https://keycloak.your-domain.com)
+    provider_base_url: https://keycloak.your-domain.com
+
+    # Keycloak Realm Name for Flightctl
+    realm_name: flightctl
+
+    # Keycloak Client ID for Grafana
+    client_id: grafana
+
+    # Keycloak Client Secret for Grafana
+    # !!! WARNING: Storing secrets in plain text YAML is INSECURE for production. !!!
+    # client_secret: YOUR_KEYCLOAK_GRAFANA_CLIENT_SECRET_FROM_KEYCLOAK
+
+    # Optional: Initial admin user for local fallback (only used if OAuth 'enabled' is false)
+    local_admin_user: admin
+    # !!! WARNING: Not for production in plaintext !!!
+    local_admin_password: admin
+
+# --- OpenTelemetry Collector Configuration ---
+# (No custom parameters for now, but can be extended)
+otel_collector:
+  pass # Placeholder

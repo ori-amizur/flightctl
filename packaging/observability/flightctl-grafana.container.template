@@ -1,0 +1,23 @@
+[Container]
+Image=docker.io/grafana/grafana:latest
+Pull=newer
+ContainerName=flightctl-grafana
+PublishPort=${OBSERVABILITY_GRAFANA_PUBLISHED_PORT}:3000
+
+# Volume for Grafana's primary data (database, compiled assets, plugins)
+Volume=/var/lib/grafana:/var/lib/grafana:rw,z
+
+# Mount custom grafana.ini file
+Volume=/etc/grafana/grafana.ini:/etc/grafana/grafana.ini:ro,z
+
+# Mount directory for data source provisioning
+Volume=/etc/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
+
+Network=flightctl
+
+[Service]
+Restart=on-failure
+ExecStartPre=/usr/bin/mkdir -p /var/lib/grafana /etc/grafana /etc/grafana/provisioning /etc/grafana/provisioning/datasources
+
+[Install]
+WantedBy=multi-user.target

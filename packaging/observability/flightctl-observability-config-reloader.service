@@ -1,0 +1,13 @@
+[Unit]
+Description=Flightctl Observability Configuration Reloader Service
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/flightctl-observability-config-reloader.sh
+RemainAfterExit=no
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

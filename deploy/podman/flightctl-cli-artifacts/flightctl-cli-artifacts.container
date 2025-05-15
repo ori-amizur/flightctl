@@ -6,7 +6,7 @@ PartOf=flightctl.target
 
 [Container]
 ContainerName=flightctl-cli-artifacts
-Image=quay.io/flightctl/flightctl-cli-artifacts:latest
+Image=flightctl-cli-artifacts:latest
 Network=flightctl.network
 EnvironmentFile=/etc/flightctl/flightctl-cli-artifacts/env
 Volume=flightctl-cli-artifacts-certs:/app/certs:ro,z

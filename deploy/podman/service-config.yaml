@@ -1,5 +1,5 @@
 global:
-  baseDomain:
+  baseDomain: 10.100.102.7.nip.io
   auth:
     type: none # aap or none
     insecureSkipTlsVerify: false

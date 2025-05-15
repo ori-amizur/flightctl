@@ -1,0 +1,53 @@
+# /etc/grafana/grafana.ini
+[server]
+http_port = 3000
+# http_addr = 0.0.0.0 # Default
+
+[paths]
+data = /var/lib/grafana
+logs = /var/log/grafana
+plugins = /var/lib/grafana/plugins
+provisioning = /etc/grafana/provisioning/
+
+[auth.anonymous]
+# set to true if you want to allow anonymous users to view dashboards
+enabled = false
+
+[auth.basic]
+# set to true if you want to use basic authentication
+enabled = true
+
+[users]
+# default admin user, default password is "admin"
+default_theme = dark
+
+[security]
+admin_user = ${OBSERVABILITY_GRAFANA_LOCAL_ADMIN_USER}
+admin_password = ${OBSERVABILITY_GRAFANA_LOCAL_ADMIN_PASSWORD}
+
+
+[session]
+provider = file
+
+[metrics]
+# Enable internal Grafana metrics, can be scraped by Prometheus
+enabled = true
+
+[auth]
+disable_login_form = ${OBSERVABILITY_GRAFANA_OAUTH_ENABLED}
+
+
+[auth.generic_oauth]
+enabled = ${OBSERVABILITY_GRAFANA_OAUTH_ENABLED}
+name = Flightctl SSO
+allow_sign_up = true
+client_id = ${OBSERVABILITY_GRAFANA_OAUTH_CLIENT_ID}
+client_secret = ${OBSERVABILITY_GRAFANA_OAUTH_CLIENT_SECRET}
+auth_url = ${OBSERVABILITY_GRAFANA_OAUTH_AUTH_URL}
+token_url = ${OBSERVABILITY_GRAFANA_OAUTH_TOKEN_URL}
+api_url = ${OBSERVABILITY_GRAFANA_OAUTH_API_URL}
+jwks_url = ${OBSERVABILITY_GRAFANA_OAUTH_JWKS_URL}
+scopes = openid profile email
+role_attribute_path = contains(roles[*], 'grafana-admin') && 'Admin', contains(roles[*], 'grafana-editor') && 'Editor', true && 'Viewer'
+
+
