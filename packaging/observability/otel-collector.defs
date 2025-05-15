@@ -1,0 +1,5 @@
+# Format:
+# ENV_VAR                       | CONFIG_PATH                                 | DEFAULT                                      | TEMPLATE_FILE                                | OUTPUT_PATH
+
+OTEL_COLLECTOR_IMAGE           | .observability.otel_collector.image        | docker.io/otel/opentelemetry-collector-contrib:latest | flightctl-otel-collector.container.template | /etc/containers/systemd/flightctl-otel-collector.container
+

@@ -1,0 +1,37 @@
+# /etc/otelcol/config.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+
+processors:
+  batch: # Batching for efficiency
+
+exporters:
+  debug:
+    # Used for debugging output
+
+  # Prometheus exporter: This exporter will expose ALL metrics received by the collector
+  # (from OTLP and hostmetrics) on its own Prometheus endpoint (8888) for Prometheus to scrape.
+  prometheus:
+    endpoint: "0.0.0.0:8888" # Collector listens on this port for Prometheus to scrape it
+    # Optional: You can configure labels, etc., here if needed.
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug] # Example: send traces to debug
+    metrics:
+      # Metrics pipeline: receives OTLP from agents, AND hostmetrics from the local machine
+      receivers: [otlp]
+      processors: [batch]
+      # Exporter: send all collected metrics to the Prometheus exporter
+      exporters: [prometheus, debug] # Ensure 'prometheus' exporter is listed here
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug] # Example: send logs to debug
+

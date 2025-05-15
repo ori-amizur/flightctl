@@ -1,5 +1,5 @@
 global:
-  baseDomain:
+  baseDomain: 10.100.102.7.nip.io
   auth:
     type: none # aap or none
     insecureSkipTlsVerify: false
@@ -8,3 +8,38 @@ global:
       externalApiUrl:
       oAuthApplicationClientId:
       oAuthToken:
+
+# --- Observability Configuration ---
+observability:
+  # --- Grafana Configuration ---
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    published_port: 3000
+
+    # --- OAuth Configuration for Grafana (using PKCE, no client_secret) ---
+    oauth:
+      enabled: true
+
+      # CHANGE: Indicate the provider type (for documentation only)
+      provider_type: aap # New field to distinguish from keycloak
+
+      # CHANGE: Explicitly define OIDC URLs based on your AAP instance
+      # Replace 'https://your-aap-domain.com' with your actual AAP URL
+      auth_url: https://ec2-98-83-209-70.compute-1.amazonaws.com/o/authorize
+      token_url: https://ec2-98-83-209-70.compute-1.amazonaws.com/o/token
+      api_url: https://ec2-98-83-209-70.compute-1.amazonaws.com/api/gateway/v1/me/
+
+      # CHANGE: Client ID obtained from AAP when you created the OAuth client for Grafana
+      # Example: Must match the client ID you configure in AAP
+      client_id: ZiGtTzeSsKdUS7WOXRlbBFXFo0X67wBrJup2fPHn
+
+      # No client_secret needed as we are using PKCE-enabled Public Clients
+
+      local_admin_user: admin
+      local_admin_password: admin
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+
+  otel_collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:latest

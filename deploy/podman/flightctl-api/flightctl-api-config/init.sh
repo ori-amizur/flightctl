@@ -22,6 +22,8 @@ if [ ! -f "$SERVICE_CONFIG_FILE" ]; then
   exit 1
 fi
 
+echo "File is $SERVICE_CONFIG_FILE"
+cat $SERVICE_CONFIG_FILE
 # Extract values
 BASE_DOMAIN=$(extract_value "baseDomain" "$SERVICE_CONFIG_FILE")
 SRV_CERT_FILE=""

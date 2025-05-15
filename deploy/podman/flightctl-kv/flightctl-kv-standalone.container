@@ -17,5 +17,6 @@ Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.c
 
 [Service]
 Type=notify
+ExecStartPre=/usr/share/flightctl/init_host.sh
 Restart=always
 RestartSec=30

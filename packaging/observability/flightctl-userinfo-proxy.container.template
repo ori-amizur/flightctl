@@ -1,0 +1,26 @@
+[Container]
+Image=${USERINFO_PROXY_IMAGE}
+Pull=newer
+ContainerName=flightctl-userinfo-proxy
+
+# Network configuration
+Network=flightctl
+PublishPort=${USERINFO_PROXY_PUBLISHED_PORT}:8080/tcp
+
+# Environment variables for configuration
+Environment=USERINFO_LISTEN_PORT=8080
+Environment=USERINFO_UPSTREAM_URL=${USERINFO_UPSTREAM_URL}
+
+# Security
+User=1001:1001
+
+# Resource limits
+Memory=64m
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target 
