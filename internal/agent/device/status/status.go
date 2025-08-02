@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 const (
@@ -43,6 +47,8 @@ type StatusManager struct {
 	managementClient client.Management
 	exporters        []Exporter
 	device           *v1alpha1.Device
+	lastStatus       v1alpha1.DeviceStatus
+	lastHealthcheck  time.Time
 
 	log *log.PrefixLogger
 }
@@ -141,6 +147,21 @@ func (m *StatusManager) ReloadCollect(ctx context.Context, _ *config.Config) err
 	return nil
 }
 
+func (m *StatusManager) update(ctx context.Context) {
+	if !reflect.DeepEqual(&m.lastStatus, m.device.Status) {
+		if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
+			m.log.Warnf("Failed to update device status: %v", err)
+		} else {
+			st, err := util.DeepCopyJson(m.device.Status)
+			if err != nil {
+				m.log.Warnf("Failed to deep copy device status: %v", err)
+			} else {
+				m.lastStatus = lo.FromPtr(st)
+			}
+		}
+	}
+}
+
 func (m *StatusManager) Sync(ctx context.Context) error {
 	if m.managementClient == nil {
 		m.log.Warn("management client not set")
@@ -154,9 +175,7 @@ func (m *StatusManager) Sync(ctx context.Context) error {
 		return err
 	}
 
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
-		m.log.Warnf("Failed to update device status: %v", err)
-	}
+	m.update(ctx)
 	return nil
 }
 
@@ -177,10 +196,8 @@ func (m *StatusManager) UpdateCondition(ctx context.Context, condition v1alpha1.
 		return nil
 	}
 
-	err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device)
-	if err != nil {
-		return fmt.Errorf("failed to update device status: %w", err)
-	}
+	m.update(ctx)
+
 	return nil
 }
 
@@ -205,9 +222,8 @@ func (m *StatusManager) Update(ctx context.Context, updateFuncs ...UpdateStatusF
 	}
 
 	// TODO: handle retries
-	if err := m.managementClient.UpdateDeviceStatus(ctx, m.deviceName, *m.device); err != nil {
-		return nil, fmt.Errorf("failed to update device status: %w", err)
-	}
+
+	m.update(ctx)
 
 	return m.device.Status, nil
 }

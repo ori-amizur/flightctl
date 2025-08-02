@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/rollout/device_selection"
 	"github.com/flightctl/flightctl/internal/rollout/disruption_budget"
 	"github.com/flightctl/flightctl/internal/service"
@@ -83,6 +84,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	callbackManager := tasks_client.NewCallbackManager(publisher, s.log)
+	rendered_version.RenderedVersionManager.GetOrInit(rendered_version.New(kvStore, queuesProvider, s.log))
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(s.store, callbackManager, kvStore, nil, s.log, "", "", []string{}))
 
 	// repository tester

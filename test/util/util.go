@@ -46,6 +46,16 @@ type testProvider struct {
 	log     logrus.FieldLogger
 }
 
+func (t *testProvider) NewBroadcaster(channelName string) (queues.Broadcaster, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testProvider) NewSubscriber(channelName string) (queues.Subscriber, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	var wg sync.WaitGroup
 	wg.Add(1)

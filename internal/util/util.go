@@ -305,6 +305,9 @@ type Singleton[T any] struct {
 }
 
 func (s *Singleton[T]) Instance() *T {
+	if ret := s.value.Load(); ret != nil {
+		return ret
+	}
 	var empty T
 	return s.GetOrInit(&empty)
 }
@@ -320,6 +323,16 @@ func Clone[T any](t *T) *T {
 	}
 	ret := *t
 	return &ret
+}
+
+func DeepCopyJson[T any](src *T) (*T, error) {
+	var dst T
+	b, err := json.Marshal(src)
+	if err != nil {
+		return &dst, err
+	}
+	err = json.Unmarshal(b, &dst)
+	return &dst, err
 }
 
 func WithOrganizationID(ctx context.Context, orgID uuid.UUID) context.Context {
