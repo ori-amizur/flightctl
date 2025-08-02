@@ -83,7 +83,7 @@ func (f *fileProvider) HasCertificate() bool {
 	return exists
 }
 
-func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
+func (f *fileProvider) CreateManagementClient(ctx context.Context, config *baseclient.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
 	// check if management certificate exists
 	managementCertExists, err := f.rw.PathExists(config.GetClientCertificatePath())
 	if err != nil {
@@ -94,11 +94,10 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
 
-	httpClient, err := client.NewFromConfig(config)
+	httpClient, err := client.NewFromConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("create management client: %w", err)
 	}
-
 	managementClient := client.NewManagement(httpClient, metricsCallback)
 	return managementClient, nil
 }

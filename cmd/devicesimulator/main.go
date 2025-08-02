@@ -27,6 +27,7 @@ import (
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -74,7 +75,7 @@ func main() {
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
 	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
-
+	bindAdress := pflag.String("bind-address", "", "address to bind each agent to")
 	pflag.Usage = printUsage
 
 	// Parse flags
@@ -136,12 +137,17 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	if lo.FromPtr(bindAdress) != "" {
+		log.Println("Bind address set to:", *bindAdress)
+		ctx = context.WithValue(ctx, v1alpha1.BindAddressCtx, *bindAdress)
+	}
+
 	// Create simulator fleet configuration
 	if err := createSimulatorFleet(ctx, serviceClient, log); err != nil {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
-	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
+	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate, logLvl)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -236,7 +242,7 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent_config.
 	return agentConfigTemplate
 }
 
-func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent_config.Config) ([]*agent.Agent, []string) {
+func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent_config.Config, logLvl logrus.Level) ([]*agent.Agent, []string) {
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
@@ -306,6 +312,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		}
 
 		logWithPrefix := flightlog.NewPrefixLogger(agentName)
+		logWithPrefix.SetLevel(logLvl)
 		agents[i] = agent.New(logWithPrefix, cfg, "")
 		agentsFolders[i] = agentDir
 	}

@@ -12,6 +12,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	server "github.com/flightctl/flightctl/internal/api/server/agent"
+	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	tlsmiddleware "github.com/flightctl/flightctl/internal/api_server/middleware"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/crypto"
@@ -137,6 +138,7 @@ func (s *AgentServer) prepareHTTPHandler(serviceHandler service.Service) (http.H
 
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	middlewares := [](func(http.Handler) http.Handler){
+		apiserver.Log500Middleware(s.log),
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		tlsmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		middleware.RequestID,

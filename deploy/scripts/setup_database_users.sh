@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -eo pipefail
+set -x
 
 # FlightCtl Database User Setup Script
 # This script creates the database users with appropriate permissions for production deployments
@@ -29,6 +30,11 @@ execute_sql_command() {
         network_arg="--network flightctl"
     fi
 
+    echo zzzzzzzzzzzzzzzzzzzzz
+    echo sudo podman run --rm $network_arg \
+        -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
+        "$POSTGRES_IMAGE" \
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_ADMIN_USER" -d "$DB_NAME" -c "$sql_command"
     sudo podman run --rm $network_arg \
         -e PGPASSWORD="$DB_ADMIN_PASSWORD" \
         "$POSTGRES_IMAGE" \
@@ -70,7 +76,7 @@ execute_sql_file() {
 
 # Check if database is accessible
 echo "Checking database connection..."
-if ! execute_sql_command "SELECT 1" >/dev/null 2>&1; then
+if ! execute_sql_command "SELECT 1" ; then
     echo "Error: Cannot connect to database. Please check your database configuration."
     exit 1
 fi
