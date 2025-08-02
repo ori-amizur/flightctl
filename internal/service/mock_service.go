@@ -1308,6 +1308,20 @@ func (mr *MockServiceMockRecorder) UpdateRenderedDevice(ctx, name, renderedConfi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRenderedDevice", reflect.TypeOf((*MockService)(nil).UpdateRenderedDevice), ctx, name, renderedConfig, renderedApplications)
 }
 
+// UpdateServerSideDeviceStatus mocks base method.
+func (m *MockService) UpdateServerSideDeviceStatus(ctx context.Context, name string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateServerSideDeviceStatus", ctx, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateServerSideDeviceStatus indicates an expected call of UpdateServerSideDeviceStatus.
+func (mr *MockServiceMockRecorder) UpdateServerSideDeviceStatus(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServerSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServerSideDeviceStatus), ctx, name)
+}
+
 // UpdateServiceSideDeviceStatus mocks base method.
 func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, device v1alpha1.Device) bool {
 	m.ctrl.T.Helper()
@@ -1320,4 +1334,18 @@ func (m *MockService) UpdateServiceSideDeviceStatus(ctx context.Context, device 
 func (mr *MockServiceMockRecorder) UpdateServiceSideDeviceStatus(ctx, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateServiceSideDeviceStatus", reflect.TypeOf((*MockService)(nil).UpdateServiceSideDeviceStatus), ctx, device)
+}
+
+// UpdateToOutOfDateByOwner mocks base method.
+func (m *MockService) UpdateToOutOfDateByOwner(ctx context.Context, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateToOutOfDateByOwner", ctx, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateToOutOfDateByOwner indicates an expected call of UpdateToOutOfDateByOwner.
+func (mr *MockServiceMockRecorder) UpdateToOutOfDateByOwner(ctx, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateToOutOfDateByOwner", reflect.TypeOf((*MockService)(nil).UpdateToOutOfDateByOwner), ctx, owner)
 }

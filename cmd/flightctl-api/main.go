@@ -17,6 +17,8 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/domain"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -140,6 +142,15 @@ func main() {
 	provider, err := queues.NewRedisProvider(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
+	}
+
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("creating kvstore: %v", err)
+	}
+	err = rendered_version.Bus.GetOrInit(rendered_version.New(kvStore, provider, log)).Start(ctx)
+	if err != nil {
+		log.Fatalf("creating rendered version manager: %v", err)
 	}
 
 	// create the agent service listener as tcp (combined HTTP+gRPC)
