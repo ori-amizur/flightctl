@@ -203,23 +203,23 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts))
 		r.Use(authMiddewares...)
 		// Add general rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		//if s.cfg.Service.RateLimit != nil {
+		//	trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+		//	requests := 60        // Default requests limit
+		//	window := time.Minute // Default window
+		//	if s.cfg.Service.RateLimit.Requests > 0 {
+		//		requests = s.cfg.Service.RateLimit.Requests
+		//	}
+		//	if s.cfg.Service.RateLimit.Window > 0 {
+		//		window = time.Duration(s.cfg.Service.RateLimit.Window)
+		//	}
+		//	fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+		//		Requests:       requests,
+		//		Window:         window,
+		//		Message:        "Rate limit exceeded, please try again later",
+		//		TrustedProxies: trustedProxies,
+		//	})
+		//}
 
 		h := transport.NewTransportHandler(serviceHandler)
 
@@ -237,23 +237,23 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(authMiddewares...)
 
 		// Add auth-specific rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			authRequests := 10      // Default auth requests limit
-			authWindow := time.Hour // Default auth window
-			if s.cfg.Service.RateLimit.AuthRequests > 0 {
-				authRequests = s.cfg.Service.RateLimit.AuthRequests
-			}
-			if s.cfg.Service.RateLimit.AuthWindow > 0 {
-				authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       authRequests,
-				Window:         authWindow,
-				Message:        "Login rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		//if s.cfg.Service.RateLimit != nil {
+		//	trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+		//	authRequests := 10      // Default auth requests limit
+		//	authWindow := time.Hour // Default auth window
+		//	if s.cfg.Service.RateLimit.AuthRequests > 0 {
+		//		authRequests = s.cfg.Service.RateLimit.AuthRequests
+		//	}
+		//	if s.cfg.Service.RateLimit.AuthWindow > 0 {
+		//		authWindow = time.Duration(s.cfg.Service.RateLimit.AuthWindow)
+		//	}
+		//	fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+		//		Requests:       authRequests,
+		//		Window:         authWindow,
+		//		Message:        "Login rate limit exceeded, please try again later",
+		//		TrustedProxies: trustedProxies,
+		//	})
+		//}
 
 		h := transport.NewTransportHandler(serviceHandler)
 		// Use the wrapper to handle the AuthValidate method signature
@@ -272,23 +272,23 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
 		// Add websocket rate limiting (only if configured)
-		if s.cfg.Service.RateLimit != nil {
-			trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
-			requests := 60        // Default requests limit
-			window := time.Minute // Default window
-			if s.cfg.Service.RateLimit.Requests > 0 {
-				requests = s.cfg.Service.RateLimit.Requests
-			}
-			if s.cfg.Service.RateLimit.Window > 0 {
-				window = time.Duration(s.cfg.Service.RateLimit.Window)
-			}
-			fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
-				Requests:       requests,
-				Window:         window,
-				Message:        "Rate limit exceeded, please try again later",
-				TrustedProxies: trustedProxies,
-			})
-		}
+		//if s.cfg.Service.RateLimit != nil {
+		//	trustedProxies := s.cfg.Service.RateLimit.TrustedProxies
+		//	requests := 60        // Default requests limit
+		//	window := time.Minute // Default window
+		//	if s.cfg.Service.RateLimit.Requests > 0 {
+		//		requests = s.cfg.Service.RateLimit.Requests
+		//	}
+		//	if s.cfg.Service.RateLimit.Window > 0 {
+		//		window = time.Duration(s.cfg.Service.RateLimit.Window)
+		//	}
+		//	fcmiddleware.InstallRateLimiter(r, fcmiddleware.RateLimitOptions{
+		//		Requests:       requests,
+		//		Window:         window,
+		//		Message:        "Rate limit exceeded, please try again later",
+		//		TrustedProxies: trustedProxies,
+		//	})
+		//}
 
 		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
