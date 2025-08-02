@@ -25,18 +25,18 @@ import (
 
 var _ = Describe("DeviceDisconnected", func() {
 	var (
-		log              *logrus.Logger
-		ctx              context.Context
-		orgId            uuid.UUID
-		deviceStore      store.Device
-		storeInst        store.Store
-		serviceHandler   service.Service
-		cfg              *config.Config
-		dbName           string
-		callbackManager  tasks_client.CallbackManager
-		mockPublisher    *queues.MockPublisher
-		ctrl             *gomock.Controller
-		disconnectedTask *tasks.DeviceDisconnected
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		deviceStore       store.Device
+		storeInst         store.Store
+		serviceHandler    service.Service
+		cfg               *config.Config
+		dbName            string
+		callbackManager   tasks_client.CallbackManager
+		mockQueueProducer *queues.MockQueueProducer
+		ctrl              *gomock.Controller
+		disconnectedTask  *tasks.DeviceDisconnected
 	)
 
 	BeforeEach(func() {
@@ -47,9 +47,9 @@ var _ = Describe("DeviceDisconnected", func() {
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		deviceStore = storeInst.Device()
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		callbackManager = tasks_client.NewCallbackManager(mockQueueProducer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})

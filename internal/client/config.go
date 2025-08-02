@@ -147,11 +147,11 @@ func (c *Config) DeepCopy() *Config {
 		return nil
 	}
 	return &Config{
-		Service:      *c.Service.DeepCopy(),
-		AuthInfo:     *c.AuthInfo.DeepCopy(),
-		HTTPOptions:  slices.Clone(c.HTTPOptions),
-		baseDir:      c.baseDir,
-		testRootDir:  c.testRootDir,
+		Service:     *c.Service.DeepCopy(),
+		AuthInfo:    *c.AuthInfo.DeepCopy(),
+		HTTPOptions: slices.Clone(c.HTTPOptions),
+		baseDir:     c.baseDir,
+		testRootDir: c.testRootDir,
 	}
 }
 
@@ -256,10 +256,13 @@ func NewHTTPClientFromConfig(config *Config) (*http.Client, error) {
 	}
 	tlsConfig.ServerName = tlsServerName
 
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		IdleConnTimeout: 5 * time.Second,
+	}
+
 	httpClient := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
+		Transport: transport,
 	}
 
 	for _, opt := range config.HTTPOptions {
