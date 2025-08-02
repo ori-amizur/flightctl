@@ -248,15 +248,15 @@ func (m *LifecycleManager) verifyEnrollment(ctx context.Context) (bool, error) {
 		}
 	}
 	if !approved {
-		m.log.Info("Enrollment request not yet approved")
+		m.log.Error("Enrollment request not yet approved")
 		return false, nil
 	}
 	if enrollmentRequest.Status.Certificate == nil {
-		m.log.Infof("Enrollment request approved, but certificate not yet issued")
+		m.log.Errorf("Enrollment request approved, but certificate not yet issued")
 		return false, nil
 	}
 	if len(*enrollmentRequest.Status.Certificate) == 0 {
-		m.log.Infof("Enrollment request approved, but certificate not yet issued")
+		m.log.Errorf("Enrollment request approved, but certificate not yet issued")
 		return false, nil
 	}
 	m.log.Infof("Enrollment approved and certificate issued")
@@ -323,7 +323,7 @@ func (m *LifecycleManager) writeQRBanner(message, url string) error {
 	}
 
 	// additionally print the banner into the output console
-	fmt.Println(buffer.String())
+	// fmt.Println(buffer.String())
 	return nil
 }
 

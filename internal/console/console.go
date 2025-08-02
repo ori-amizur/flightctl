@@ -10,7 +10,9 @@ import (
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -38,24 +40,35 @@ type InternalSessionRegistration interface {
 
 type ConsoleSessionManager struct {
 	serviceHandler service.Service
+	kvStore        kvstore.KVStore
 	log            logrus.FieldLogger
 	// This one is the gRPC Handler of the agent for now, in the next iteration
 	// this should be split so we funnel traffic through a queue in redis/valkey
 	sessionRegistration InternalSessionRegistration
 }
 
-func NewConsoleSessionManager(serviceHandler service.Service, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
+func NewConsoleSessionManager(serviceHandler service.Service, kvStore kvstore.KVStore, log logrus.FieldLogger, sessionRegistration InternalSessionRegistration) *ConsoleSessionManager {
 	return &ConsoleSessionManager{
 		serviceHandler:      serviceHandler,
+		kvStore:             kvStore,
 		log:                 log,
 		sessionRegistration: sessionRegistration,
 	}
 }
 
+// Extracts organization ID from context with fallback to default
+func getOrgIdFromContext(ctx context.Context) uuid.UUID {
+	if orgId, ok := util.GetOrgIdFromContext(ctx); ok {
+		return orgId
+	}
+	return store.NullOrgId
+}
+
 func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceName string, updater func(value string) (string, error)) error {
 	var (
-		err      error
-		newValue string
+		err                 error
+		newValue            string
+		nextRenderedVersion string
 	)
 	for i := 0; i != 10; i++ {
 		device, status := m.serviceHandler.GetDevice(ctx, deviceName)
@@ -69,7 +82,7 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 			return err
 		}
 		(*device.Metadata.Annotations)[api.DeviceAnnotationConsole] = newValue
-		nextRenderedVersion, err := api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations)
+		nextRenderedVersion, err = api.GetNextDeviceRenderedVersion(*device.Metadata.Annotations)
 		if err != nil {
 			return err
 		}
@@ -79,6 +92,9 @@ func (m *ConsoleSessionManager) modifyAnnotations(ctx context.Context, deviceNam
 		if !errors.Is(err, flterrors.ErrResourceVersionConflict) {
 			break
 		}
+	}
+	if err == nil {
+		err = kvstore.StoreRenderedVersion(ctx, m.kvStore, getOrgIdFromContext(ctx), deviceName, nextRenderedVersion)
 	}
 	return err
 }

@@ -141,7 +141,7 @@ func main() {
 		log.Warnf("Failed to create simulator fleet: %v", err)
 	}
 
-	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate)
+	agents, agentsFolders := createAgents(log, *numDevices, *initialDeviceIndex, agentConfigTemplate, logLvl)
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -236,7 +236,7 @@ func createAgentConfigTemplate(dataDir string, configFile string) *agent_config.
 	return agentConfigTemplate
 }
 
-func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent_config.Config) ([]*agent.Agent, []string) {
+func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, agentConfigTemplate *agent_config.Config, logLvl logrus.Level) ([]*agent.Agent, []string) {
 	log.Infoln("creating agents")
 	agents := make([]*agent.Agent, numDevices)
 	agentsFolders := make([]string, numDevices)
@@ -306,6 +306,7 @@ func createAgents(log *logrus.Logger, numDevices int, initialDeviceIndex int, ag
 		}
 
 		logWithPrefix := flightlog.NewPrefixLogger(agentName)
+		logWithPrefix.SetLevel(logLvl)
 		agents[i] = agent.New(logWithPrefix, cfg, "")
 		agentsFolders[i] = agentDir
 	}
