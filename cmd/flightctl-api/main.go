@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
-
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -21,11 +23,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func dumpStacks(ctx context.Context, log logrus.FieldLogger) {
+	ticker := time.NewTicker(60 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Stopping stack dump routine")
+			return
+		case <-ticker.C:
+			buf := make([]byte, 1<<20) // 1 MB buffer
+			n := runtime.Stack(buf, true)
+			os.Stderr.Write([]byte("Dumping stack:\n\n"))
+			os.Stderr.Write(buf[:n])
+		}
+	}
+}
+
+func prof(log logrus.FieldLogger) {
+	log.Println("Starting pprof on :6060")
+	log.Println(http.ListenAndServe(":6060", nil))
+}
+
 func main() {
 	ctx := context.Background()
 
 	log := log.InitLogs()
 	log.Println("Starting API service")
+	go prof(log)
 	defer log.Println("API service stopped")
 
 	cfg, err := config.LoadOrGenerate(config.ConfigFile())

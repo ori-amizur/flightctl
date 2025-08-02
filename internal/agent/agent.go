@@ -99,7 +99,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	executer := &executer.CommonExecuter{}
 
 	// create enrollment client
-	enrollmentClient, err := newEnrollmentClient(a.config)
+	enrollmentClient, err := newEnrollmentClient(ctx, a.config)
 	if err != nil {
 		return err
 	}
@@ -330,8 +330,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	return agent.Run(ctx)
 }
 
-func newEnrollmentClient(cfg *agent_config.Config) (client.Enrollment, error) {
-	httpClient, err := client.NewFromConfig(&cfg.EnrollmentService.Config)
+func newEnrollmentClient(ctx context.Context, cfg *agent_config.Config) (client.Enrollment, error) {
+	httpClient, err := client.NewFromConfig(ctx, &cfg.EnrollmentService.Config)
 	if err != nil {
 		return nil, err
 	}

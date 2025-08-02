@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -128,6 +129,47 @@ func oapiMultiErrorHandler(errs openapi3.MultiError) (int, error) {
 	return http.StatusBadRequest, errs
 }
 
+// Custom response writer that captures status code and body
+type captureWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       *bytes.Buffer
+	log        logrus.FieldLogger
+}
+
+func (w *captureWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *captureWriter) Write(b []byte) (int, error) {
+	w.body.Write(b) // Save body for logging
+	return w.ResponseWriter.Write(b)
+}
+
+// Middleware to capture and log 500 responses
+func Log500Middleware(log logrus.FieldLogger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cw := &captureWriter{
+				ResponseWriter: w,
+				statusCode:     http.StatusOK,
+				body:           &bytes.Buffer{},
+				log:            log,
+			}
+
+			start := time.Now()
+			next.ServeHTTP(cw, r)
+			duration := time.Since(start)
+
+			if cw.statusCode == http.StatusInternalServerError {
+				log.Printf("[500 ERROR] %s %s -> %d (%v)\nResponse Body:\n%s\n",
+					r.Method, r.URL.String(), cw.statusCode, duration, cw.body.String())
+			}
+		})
+	}
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing async jobs")
 	publisher, err := tasks_client.TaskQueuePublisher(s.queuesProvider)
@@ -168,6 +210,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// general middleware stack for all route groups
 	// request size limits should come before logging to prevent DoS attacks from filling logs
 	router.Use(
+		Log500Middleware(s.log),
 		middleware.RequestSize(int64(s.cfg.Service.HttpMaxRequestSize)),
 		fcmiddleware.RequestSizeLimiter(s.cfg.Service.HttpMaxUrlLength, s.cfg.Service.HttpMaxNumHeaders),
 		fcmiddleware.RequestID,
@@ -178,7 +221,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	serviceHandler := service.WrapWithTracing(service.NewServiceHandler(
-		s.store, callbackManager, kvStore, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+		s.store, callbackManager, kvStore, s.queuesProvider, s.ca, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
 	// a group is a new mux copy, with its own copy of the middleware stack
 	// this one handles the OpenAPI handling of the service
@@ -200,7 +243,7 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Use(fcmiddleware.CreateRouteExistsMiddleware(r))
 		r.Use(authMiddewares...)
 
-		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, s.log, s.consoleEndpointReg)
+		consoleSessionManager := console.NewConsoleSessionManager(serviceHandler, kvStore, s.log, s.consoleEndpointReg)
 		ws := transport.NewWebsocketHandler(s.ca, s.log, consoleSessionManager)
 		ws.RegisterRoutes(r)
 	})

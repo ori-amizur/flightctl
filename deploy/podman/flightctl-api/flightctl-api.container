@@ -17,12 +17,14 @@ Environment=DB_USER=flightctl_app
 
 PublishPort=3443:3443
 PublishPort=7443:7443
+PublishPort=6060:6060
 Volume=/etc/flightctl/pki:/root/.flightctl/certs:rw,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
+LimitNOFILE=524288
 
 [Install]
 WantedBy=flightctl.target

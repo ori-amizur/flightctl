@@ -133,3 +133,7 @@ const (
 	// Rollout is pending on user approval
 	RolloutWaitingReason = "Waiting"
 )
+
+const (
+	BindAddressCtx = "bind_address" // Context key for bind address in the API server
+)

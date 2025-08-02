@@ -384,15 +384,15 @@ func (m *PodmanMonitor) ExecuteActions(ctx context.Context) error {
 		}
 	}
 
-	if m.hasApps() {
-		if err := m.startMonitor(ctx); err != nil {
-			return fmt.Errorf("failed to start podman monitor: %w", err)
-		}
-	} else {
-		if err := m.stopMonitor(); err != nil {
-			return fmt.Errorf("failed to stop podman monitor: %w", err)
-		}
-	}
+	//if m.hasApps() {
+	//	if err := m.startMonitor(ctx); err != nil {
+	//		return fmt.Errorf("failed to start podman monitor: %w", err)
+	//	}
+	//} else {
+	//	if err := m.stopMonitor(); err != nil {
+	//		return fmt.Errorf("failed to stop podman monitor: %w", err)
+	//	}
+	//}
 
 	return nil
 }

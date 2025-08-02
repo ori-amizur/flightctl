@@ -6,17 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/rendered_version"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 func (h *ServiceHandler) CreateDevice(ctx context.Context, device api.Device) (*api.Device, api.Status) {
@@ -292,12 +297,155 @@ func (h *ServiceHandler) PatchDeviceStatus(ctx context.Context, name string, pat
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
+type handshakeRequest struct {
+	orgId uuid.UUID
+	name  string
+}
+
+var onceStarter sync.Once
+var healthcheckChan chan handshakeRequest
+
+func (h *ServiceHandler) startHealthcheck() {
+	onceStarter.Do(func() {
+		healthcheckChan = make(chan handshakeRequest, 5000)
+		go h.doHealthcheck()
+	})
+}
+
+func (h *ServiceHandler) doHealthcheck() {
+	h.log.Info("starting healthcheck worker")
+	defer h.log.Info("healthcheck worker stopped")
+	pending := make(map[uuid.UUID][]string)
+	flush := func(orgId uuid.UUID) {
+		ctx, span := startSpan(context.Background(), "HealthcheckDevice")
+		defer span.End()
+		devices := pending[orgId]
+		parts := 1
+		for ; len(devices)/parts > 1500; parts++ {
+		}
+		size := len(devices)/parts + 1
+		for start := 0; start < len(devices); start += size {
+			end := util.Min(len(devices), start+size)
+			err := h.store.Device().Healthcheck(ctx, orgId, devices[start:end])
+			if err != nil {
+				h.log.Errorf("HealthcheckDevice failed for %s: %v", orgId, err)
+			}
+		}
+		delete(pending, orgId)
+	}
+
+	ticker := time.NewTicker(15 * time.Second)
+	for {
+		select {
+		case req := <-healthcheckChan:
+			pending[req.orgId] = append(pending[req.orgId], req.name)
+		case <-ticker.C:
+			keys := lo.Keys(pending)
+			for _, orgId := range keys {
+				flush(orgId)
+			}
+		}
+	}
+}
+
+func (h *ServiceHandler) HealthcheckDevice(ctx context.Context, name string) api.Status {
+	h.startHealthcheck()
+	healthcheckChan <- handshakeRequest{
+		orgId: getOrgIdFromContext(ctx),
+		name:  name,
+	}
+	return api.StatusNoContent()
+}
+
+var getRenderedDeviceStarter sync.Once
+var getRenderedDeviceSubscribers sync.Map
+
+func (h *ServiceHandler) startGetRenderedDevice() {
+	getRenderedDeviceStarter.Do(func() {
+		consumer, err := rendered_version.NewSubscriber(h.queuesProvider)
+		if err != nil {
+			h.log.Fatalf("failed to create rendered version consumer: %v", err)
+			return
+		}
+		err = consumer.Subscribe(context.Background(), h.consumeHandler)
+		if err != nil {
+			h.log.Errorf("failed to consume rendered version: %v", err)
+		}
+	})
+}
+
+func (h *ServiceHandler) consumeHandler(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error {
+	key := fmt.Sprintf("%s/%s", orgId.String(), name)
+	notifier, ok := getRenderedDeviceSubscribers.Load(key)
+	if !ok {
+		return nil
+	}
+	ch, isChan := notifier.(chan string)
+	if !isChan {
+		h.log.Errorf("GetRenderedDevice: notifier for %s/%s is not a channel, skipping notification", orgId, name)
+		return nil
+	}
+	select {
+	case ch <- renderedVersion:
+	default:
+		h.log.Warnf("GetRenderedDevice: channel for %s/%s is full, skipping notification", orgId, name)
+	}
+	return nil
+}
+
+func (h *ServiceHandler) subscribeGetRenderedDevice(orgId uuid.UUID, name string, notifier chan string) {
+	key := fmt.Sprintf("%s/%s", orgId.String(), name)
+	getRenderedDeviceSubscribers.Store(key, notifier)
+}
+
+func (h *ServiceHandler) unsubscribeGetRenderedDevice(orgId uuid.UUID, name string) {
+	key := fmt.Sprintf("%s/%s", orgId.String(), name)
+	getRenderedDeviceSubscribers.Delete(key)
+}
+
 func (h *ServiceHandler) GetRenderedDevice(ctx context.Context, name string, params api.GetRenderedDeviceParams) (*api.Device, api.Status) {
+	var renderedVersionInKV string
+
+	h.startGetRenderedDevice()
 	orgId := getOrgIdFromContext(ctx)
 
-	result, err := h.store.Device().GetRendered(ctx, orgId, name, params.KnownRenderedVersion, h.agentEndpoint)
-	if err == nil && result == nil {
-		return nil, api.StatusNoContent()
+	kvKey := kvstore.DeviceKey{
+		OrgID:      orgId,
+		DeviceName: name,
+	}
+	if params.KnownRenderedVersion != nil {
+		ch := make(chan string, 1)
+		h.subscribeGetRenderedDevice(orgId, name, ch)
+		defer h.unsubscribeGetRenderedDevice(orgId, name)
+		b, err := h.kvStore.Get(ctx, kvKey.ComposeKey())
+		if err != nil {
+			return nil, api.StatusInternalServerError(fmt.Sprintf("failed to get rendered version from kvstore: %v", err))
+		}
+		if b != nil {
+			renderedVersionInKV = string(b)
+		}
+		if renderedVersionInKV != *params.KnownRenderedVersion {
+			h.log.Infof("GetRenderedDevice %s/%s: known rendered version %s vs %+v does not match, fetching new version", orgId, name, *params.KnownRenderedVersion, b)
+		} else {
+			timeout := time.NewTimer(120 * time.Second)
+			defer timeout.Stop()
+			select {
+			case <-timeout.C:
+				return nil, api.StatusNoContent()
+			case renderedVersionInKV = <-ch:
+				h.log.Infof("GetRenderedDevice %s/%s: got notififcation, fetching new version", orgId, name)
+			}
+		}
+	}
+
+	result, err := h.store.Device().GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	newVersion := result.Version()
+	if err == nil && params.KnownRenderedVersion != nil && newVersion != "" && renderedVersionInKV != newVersion {
+		// If the rendered version in the KV store is different from the one we just fetched,
+		// we set the new version in the KV store.
+		if _, setErr := h.kvStore.SetNX(ctx, kvKey.ComposeKey(), []byte(newVersion)); setErr != nil {
+			h.log.Errorf("GetRenderedDevice %s/%s: failed to set rendered version in kvstore: %v", orgId, name, setErr)
+		}
 	}
 	return result, StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
@@ -376,9 +524,30 @@ func (h *ServiceHandler) UpdateDeviceAnnotations(ctx context.Context, name strin
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 
+var (
+	rvPublisher rendered_version.Broadcaster
+	rvOnce      sync.Once
+)
+
 func (h *ServiceHandler) UpdateRenderedDevice(ctx context.Context, name, renderedConfig, renderedApplications string) api.Status {
 	orgId := getOrgIdFromContext(ctx)
-	err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	renderedVersion, err := h.store.Device().UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications)
+	if err == nil {
+		rvOnce.Do(func() {
+			var err error
+			rvPublisher, err = rendered_version.NewBroadcaster(h.queuesProvider, h.kvStore)
+			if err != nil {
+				h.log.Fatalf("Failed to create rendered version publisher: %v", err)
+			}
+		})
+		err = rvPublisher.Broadcast(ctx, orgId, name, renderedVersion)
+		if err != nil {
+			h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
+			return api.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
+		}
+	} else {
+		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
+	}
 	return StoreErrorToApiStatus(err, false, api.DeviceKind, &name)
 }
 

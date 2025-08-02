@@ -6,12 +6,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	api "github.com/flightctl/flightctl/api/v1alpha1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	agent_client "github.com/flightctl/flightctl/internal/api/client/agent"
 	base_client "github.com/flightctl/flightctl/internal/client"
@@ -101,7 +103,7 @@ func (t *tpmProvider) createCertificate() (*tls.Certificate, error) {
 	return tlsCert, nil
 }
 
-func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
+func (t *tpmProvider) CreateManagementClient(ctx context.Context, config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
 	tlsCert, err := t.createCertificate()
 	if err != nil {
 		return nil, err
@@ -131,6 +133,18 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 		Transport: &http.Transport{
 			TLSClientConfig: tlsConfig,
 		},
+	}
+	if value := ctx.Value(api.BindAddressCtx); value != nil {
+		if bindAddr, ok := value.(string); ok && bindAddr != "" {
+			t.log.Println("Using bind address for HTTP client:", bindAddr)
+			dialer := net.Dialer{
+				LocalAddr: &net.TCPAddr{
+					IP: net.ParseIP(bindAddr),
+				},
+			}
+			httpClient.Transport.(*http.Transport).DialContext = dialer.DialContext
+			httpClient.Transport.(*http.Transport).Dial = dialer.Dial
+		}
 	}
 
 	clientWithResponses, err := agent_client.NewClientWithResponses(config.Service.Server, agent_client.WithHTTPClient(httpClient))

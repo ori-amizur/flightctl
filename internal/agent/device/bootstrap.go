@@ -109,7 +109,7 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	if err := b.setManagementClient(); err != nil {
+	if err := b.setManagementClient(ctx); err != nil {
 		return err
 	}
 
@@ -282,9 +282,9 @@ func (b *Bootstrap) checkRollback(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrap) setManagementClient() error {
+func (b *Bootstrap) setManagementClient(ctx context.Context) error {
 	var err error
-	b.managementClient, err = b.identityProvider.CreateManagementClient(b.managementServiceConfig, b.managementMetricsCallback)
+	b.managementClient, err = b.identityProvider.CreateManagementClient(ctx, b.managementServiceConfig, b.managementMetricsCallback)
 	if err != nil {
 		return fmt.Errorf("create management client: %w", err)
 	}
