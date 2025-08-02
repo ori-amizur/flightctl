@@ -43,22 +43,22 @@ var _ = BeforeSuite(func() {
 
 var _ = Describe("FleetRollout", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		deviceStore     store.Device
-		fleetStore      store.Fleet
-		tvStore         store.TemplateVersion
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		db              *gorm.DB
-		dbName          string
-		numDevices      int
-		fleetName       string
-		callbackManager tasks_client.CallbackManager
-		mockPublisher   *queues.MockPublisher
-		ctrl            *gomock.Controller
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		deviceStore       store.Device
+		fleetStore        store.Fleet
+		tvStore           store.TemplateVersion
+		storeInst         store.Store
+		serviceHandler    service.Service
+		cfg               *config.Config
+		db                *gorm.DB
+		dbName            string
+		numDevices        int
+		fleetName         string
+		callbackManager   tasks_client.CallbackManager
+		mockQueueProducer *queues.MockQueueProducer
+		ctrl              *gomock.Controller
 	)
 
 	BeforeEach(func() {
@@ -73,9 +73,9 @@ var _ = Describe("FleetRollout", func() {
 		tvStore = storeInst.TemplateVersion()
 		fleetName = "myfleet"
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
+		callbackManager = tasks_client.NewCallbackManager(mockQueueProducer, log)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})

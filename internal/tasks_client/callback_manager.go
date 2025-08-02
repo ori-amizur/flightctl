@@ -44,19 +44,19 @@ type CallbackManager interface {
 }
 
 type callbackManager struct {
-	publisher queues.Publisher
+	publisher queues.QueueProducer
 	log       logrus.FieldLogger
 }
 
-func TaskQueuePublisher(queuesProvider queues.Provider) (queues.Publisher, error) {
-	publisher, err := queuesProvider.NewPublisher(consts.TaskQueue)
+func TaskQueuePublisher(queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	publisher, err := queuesProvider.NewQueueProducer(consts.TaskQueue)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
 	return publisher, nil
 }
 
-func NewCallbackManager(publisher queues.Publisher, log logrus.FieldLogger) CallbackManager {
+func NewCallbackManager(publisher queues.QueueProducer, log logrus.FieldLogger) CallbackManager {
 	return &callbackManager{
 		publisher: publisher,
 		log:       log,
@@ -71,7 +71,7 @@ func (t *callbackManager) submitTask(ctx context.Context, taskName string, resou
 		t.log.WithError(err).Error("failed to marshal payload")
 		return
 	}
-	if err = t.publisher.Publish(ctx, b); err != nil {
+	if err = t.publisher.Enqueue(ctx, b); err != nil {
 		t.log.WithError(err).Error("failed to publish resource")
 	}
 }

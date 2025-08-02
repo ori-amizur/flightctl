@@ -554,7 +554,7 @@ func (s *DummyOrganization) List(ctx context.Context) ([]*model.Organization, er
 
 type dummyPublisher struct{}
 
-func (d *dummyPublisher) Publish(_ context.Context, _ []byte) error {
+func (d *dummyPublisher) Enqueue(_ context.Context, _ []byte) error {
 	return nil
 }
 

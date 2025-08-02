@@ -47,9 +47,9 @@ func BenchmarkDeviceDisconnectedPoll(b *testing.B) {
 		dbStore, cfg, dbName, db := store.PrepareDBForUnitTests(ctx, log)
 
 		ctrl := gomock.NewController(b)
-		mockPublisher := queues.NewMockPublisher(ctrl)
-		callbackManager := tasks_client.NewCallbackManager(mockPublisher, log)
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
+		callbackManager := tasks_client.NewCallbackManager(mockQueueProducer, log)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any()).AnyTimes()
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
 		serviceHandler := service.NewServiceHandler(dbStore, callbackManager, kvStore, nil, log, "", "", []string{})

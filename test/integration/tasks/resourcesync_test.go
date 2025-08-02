@@ -25,17 +25,17 @@ import (
 
 var _ = Describe("ResourceSync Task Integration Tests", func() {
 	var (
-		log             *logrus.Logger
-		ctx             context.Context
-		orgId           uuid.UUID
-		storeInst       store.Store
-		serviceHandler  service.Service
-		cfg             *config.Config
-		dbName          string
-		callbackManager tasks_client.CallbackManager
-		ctrl            *gomock.Controller
-		mockPublisher   *queues.MockPublisher
-		resourceSync    *tasks.ResourceSync
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		storeInst         store.Store
+		serviceHandler    service.Service
+		cfg               *config.Config
+		dbName            string
+		callbackManager   tasks_client.CallbackManager
+		ctrl              *gomock.Controller
+		mockQueueProducer *queues.MockQueueProducer
+		resourceSync      *tasks.ResourceSync
 	)
 
 	BeforeEach(func() {
@@ -45,15 +45,15 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		log = flightlog.InitLogs()
 		storeInst, cfg, dbName, _ = store.PrepareDBForUnitTests(ctx, log)
 		ctrl = gomock.NewController(GinkgoT())
-		mockPublisher = queues.NewMockPublisher(ctrl)
-		callbackManager = tasks_client.NewCallbackManager(mockPublisher, log)
+		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
+		callbackManager = tasks_client.NewCallbackManager(mockQueueProducer, log)
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		Expect(err).ToNot(HaveOccurred())
 		serviceHandler = service.NewServiceHandler(storeInst, callbackManager, kvStore, nil, log, "", "", []string{})
 		resourceSync = tasks.NewResourceSync(callbackManager, serviceHandler, log, nil)
 
 		// Set up mock expectations for the publisher
-		mockPublisher.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any()).AnyTimes()
 	})
 
 	AfterEach(func() {

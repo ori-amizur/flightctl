@@ -15,7 +15,7 @@ type MockPublisher struct {
 	publishedResources []ResourceReference
 }
 
-func (m *MockPublisher) Publish(ctx context.Context, payload []byte) error {
+func (m *MockPublisher) Enqueue(ctx context.Context, payload []byte) error {
 	var resource ResourceReference
 	err := json.Unmarshal(payload, &resource)
 	if err != nil {
