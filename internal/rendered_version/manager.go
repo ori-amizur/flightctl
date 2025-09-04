@@ -58,9 +58,6 @@ func (m *Manager) unsubscribe(orgId uuid.UUID, name string) {
 }
 
 func (m *Manager) WaitForNewVersion(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion string) (bool, string, error) {
-	ch := make(chan string, 1)
-	m.subscribe(orgId, name, ch)
-	defer m.unsubscribe(orgId, name)
 	b, err := m.kvStore.Get(ctx, m.key(orgId, name))
 	if err != nil {
 		return false, "", fmt.Errorf("failed to get rendered version from kvstore: %v", err)
@@ -69,18 +66,7 @@ func (m *Manager) WaitForNewVersion(ctx context.Context, orgId uuid.UUID, name s
 	if b != nil {
 		currentRenderedVersion = string(b)
 	}
-	if currentRenderedVersion == knownRenderedVersion {
-		timeout := time.NewTimer(renderedVersionTimeout)
-		defer timeout.Stop()
-		select {
-		case <-ctx.Done():
-			return false, currentRenderedVersion, ctx.Err()
-		case <-timeout.C:
-			return false, currentRenderedVersion, nil
-		case currentRenderedVersion = <-ch:
-		}
-	}
-	return true, currentRenderedVersion, nil
+	return currentRenderedVersion != knownRenderedVersion, currentRenderedVersion, nil
 }
 
 func (m *Manager) StoreAndNotify(ctx context.Context, orgId uuid.UUID, name string, renderedVersion string) error {
