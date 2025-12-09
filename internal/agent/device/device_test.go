@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
@@ -61,6 +62,7 @@ func TestSync(t *testing.T) {
 			mockSpecManager *spec.MockManager,
 			mockPrefetchManager *dependency.MockPrefetchManager,
 			mockOSManager *os.MockManager,
+			mockPruningManager *pruning.MockManager,
 		)
 	}{
 		{
@@ -84,8 +86,11 @@ func TestSync(t *testing.T) {
 				mockSpecManager *spec.MockManager,
 				mockPrefetchManager *dependency.MockPrefetchManager,
 				mockOSManager *os.MockManager,
+				mockPruningManager *pruning.MockManager,
 			) {
 				nonRetryableHookError := errors.New("hook error")
+				// IsCriticalAlert is called at the start of each syncDeviceSpec call
+				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 				gomock.InOrder(
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
 					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
@@ -109,6 +114,7 @@ func TestSync(t *testing.T) {
 					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, desired.Spec, false).Return(nonRetryableHookError),
+					// Pruning is not called when AfterUpdate hooks fail
 					//
 					// rollback switch current and desired spec ordering
 					//
@@ -124,6 +130,7 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
+					mockPruningManager.EXPECT().Prune(ctx).Return(nil),
 					mockPrefetchManager.EXPECT().Cleanup(),
 					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
 					//
@@ -149,6 +156,7 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
+					mockPruningManager.EXPECT().Prune(ctx).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockPrefetchManager.EXPECT().Cleanup(),
 				)
@@ -173,6 +181,7 @@ func TestSync(t *testing.T) {
 			mockSpecManager := spec.NewMockManager(ctrl)
 			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
+			mockPruningManager := pruning.NewMockManager(ctrl)
 			tc.setupMocks(
 				tc.current,
 				tc.desired,
@@ -190,6 +199,7 @@ func TestSync(t *testing.T) {
 				mockSpecManager,
 				mockPrefetchManager,
 				mockOSManager,
+				mockPruningManager,
 			)
 
 			// setup
@@ -223,11 +233,13 @@ func TestSync(t *testing.T) {
 				lifecycleManager:       mockLifecycleManager,
 				prefetchManager:        mockPrefetchManager,
 				osManager:              mockOSManager,
+				pruningManager:         mockPruningManager,
 			}
 
 			// initial sync
 			agent.syncDeviceSpec(ctx)
 			// resync the previously reconciled state
+			// Note: The mocks above already include expectations for the second syncDeviceSpec call
 			agent.syncDeviceSpec(ctx)
 			// TODO add validations
 		})
@@ -422,4 +434,11 @@ func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desire
 		return errors.New("desired version mismatch")
 	}
 	return nil
+}
+
+// TestAgent_handleCriticalDiskAlerts was removed - emergency pruning is now handled
+// in the disk monitor goroutine (internal/agent/device/resource/disk.go)
+// This test is no longer applicable as the functionality has been moved.
+func TestAgent_handleCriticalDiskAlerts_removed(t *testing.T) {
+	t.Skip("Emergency pruning is now handled in the disk monitor goroutine")
 }

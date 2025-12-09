@@ -136,6 +136,9 @@ type Config struct {
 	// ProfilingEnabled turns on the loopback-only pprof server for local debugging.
 	ProfilingEnabled bool `json:"profiling-enabled,omitempty"`
 
+	// Pruning holds all pruning-related configuration
+	Pruning Pruning `json:"pruning,omitempty"`
+
 	readWriter fileio.ReadWriter
 }
 
@@ -148,6 +151,12 @@ type TPM struct {
 	AuthEnabled bool `json:"auth-enabled,omitempty"`
 	// StorageFilePath specifies the file path for TPM key storage.
 	StorageFilePath string `json:"storage-file-path,omitempty"`
+}
+
+type Pruning struct {
+	// Enabled controls whether automatic pruning is enabled.
+	// Default: true
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included

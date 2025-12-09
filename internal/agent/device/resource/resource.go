@@ -55,10 +55,11 @@ type ResourceManager struct {
 // NewManager creates a new resource Manager.
 func NewManager(
 	log *log.PrefixLogger,
+	pruningManager EmergencyPruner,
 ) Manager {
 	return &ResourceManager{
 		cpuMonitor:    NewCPUMonitor(log),
-		diskMonitor:   NewDiskMonitor(log),
+		diskMonitor:   NewDiskMonitor(log, pruningManager),
 		memoryMonitor: NewMemoryMonitor(log),
 		log:           log,
 	}

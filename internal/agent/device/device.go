@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -47,6 +48,7 @@ type Agent struct {
 	osClient               os.Client
 	podmanClient           *client.Podman
 	prefetchManager        dependency.PrefetchManager
+	pruningManager         pruning.Manager
 
 	statusUpdateInterval util.Duration
 
@@ -74,6 +76,7 @@ func NewAgent(
 	osClient os.Client,
 	podmanClient *client.Podman,
 	prefetchManager dependency.PrefetchManager,
+	pruningManager pruning.Manager,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -96,6 +99,7 @@ func NewAgent(
 		osClient:               osClient,
 		podmanClient:           podmanClient,
 		prefetchManager:        prefetchManager,
+		pruningManager:         pruningManager,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -452,6 +456,15 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	if err := a.appManager.AfterUpdate(ctx); err != nil {
 		a.log.Errorf("Error executing actions: %v", err)
 		return err
+	}
+
+	// execute pruning after all other AfterUpdate hooks complete
+	// Pruning errors are logged but don't block reconciliation
+	if a.pruningManager != nil {
+		if err := a.pruningManager.Prune(ctx); err != nil {
+			a.log.Warnf("Pruning completed with errors: %v", err)
+			// Don't return error - pruning failures must not block reconciliation
+		}
 	}
 
 	return nil

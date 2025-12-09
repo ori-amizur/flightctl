@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/policy"
+	"github.com/flightctl/flightctl/internal/agent/device/pruning"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/agent/device/spec/audit"
@@ -223,9 +224,19 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create resource manager
+	// create pruning manager (needed by resource manager for emergency pruning)
+	pruningManager := pruning.NewManager(
+		podmanClient,
+		specManager,
+		deviceReadWriter,
+		a.log,
+		a.config.Pruning,
+	)
+
+	// create resource manager (passes pruning manager to disk monitor for emergency pruning)
 	resourceManager := resource.NewManager(
 		a.log,
+		pruningManager,
 	)
 
 	// create hook manager
@@ -380,6 +391,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		podmanClient,
 		prefetchManager,
+		pruningManager,
 		backoff,
 		a.log,
 	)
