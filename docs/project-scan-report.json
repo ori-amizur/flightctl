@@ -1,0 +1,121 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {
+    "started": "2025-12-08T18:21:51+02:00",
+    "last_updated": "2025-12-08T18:25:00+02:00"
+  },
+  "mode": "initial_scan",
+  "scan_level": "quick",
+  "project_root": "/home/oamizur/go/src/github.com/ori-amizur/flightctl",
+  "output_folder": "/home/oamizur/go/src/github.com/ori-amizur/flightctl/docs",
+  "completed_steps": [
+    {
+      "step": "step_1",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:25:00+02:00",
+      "summary": "Classified as monolith with 1 part (backend)"
+    },
+    {
+      "step": "step_2",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:25:30+02:00",
+      "summary": "Found 50+ existing docs"
+    },
+    {
+      "step": "step_3",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:26:00+02:00",
+      "summary": "Tech stack: Go backend with gRPC/REST, PostgreSQL, Redis, K8s"
+    }
+  ],
+  "current_step": "step_10",
+  "findings": {
+    "project_classification": {
+      "repository_type": "monolith",
+      "parts_count": 1,
+      "primary_tech": "Go backend service"
+    },
+    "technology_stack": {
+      "framework": "Go with Chi Router and gRPC",
+      "database": "PostgreSQL with GORM",
+      "cache": "Redis"
+    }
+  },
+  "outputs_generated": [
+    "project-scan-report.json",
+    "index.md",
+    "project-overview.md",
+    "source-tree-analysis.md",
+    "development-guide.md",
+    "api-contracts.md",
+    "data-models.md",
+    "deployment-guide.md"
+  ],
+  "completed_steps": [
+    {
+      "step": "step_1",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:25:00+02:00",
+      "summary": "Classified as monolith with 1 part (backend)"
+    },
+    {
+      "step": "step_2",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:25:30+02:00",
+      "summary": "Found 50+ existing docs"
+    },
+    {
+      "step": "step_3",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:26:00+02:00",
+      "summary": "Tech stack: Go backend with gRPC/REST, PostgreSQL, Redis, K8s"
+    },
+    {
+      "step": "step_4",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:27:00+02:00",
+      "summary": "Conditional analysis complete, 3 files written (API, Data, Deployment)"
+    },
+    {
+      "step": "step_5",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:28:00+02:00",
+      "summary": "Source tree documented"
+    },
+    {
+      "step": "step_6",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:29:00+02:00",
+      "summary": "Dev/deployment guides written"
+    },
+    {
+      "step": "step_9",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:30:00+02:00",
+      "summary": "All supporting docs written"
+    },
+    {
+      "step": "step_10",
+      "status": "completed",
+      "timestamp": "2025-12-08T18:31:00+02:00",
+      "summary": "Master index generated"
+    }
+  ],
+  "findings": {
+    "project_classification": {
+      "repository_type": "monolith",
+      "parts_count": 1,
+      "primary_tech": "Go backend service"
+    }
+  },
+  "project_types": [
+    {
+      "part_id": "main",
+      "project_type_id": "backend",
+      "display_name": "Backend Service"
+    }
+  ],
+  "outputs_generated": ["project-scan-report.json"],
+  "resume_instructions": "Starting from step 2"
+}
+
