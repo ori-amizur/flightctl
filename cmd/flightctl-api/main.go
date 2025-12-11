@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
+	_ "net/http/pprof"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
 	"github.com/flightctl/flightctl/internal/api_server/agentserver"
 	"github.com/flightctl/flightctl/internal/api_server/middleware"
@@ -39,6 +40,9 @@ func main() {
 	log := log.InitLogs(cfg.Service.LogLevel)
 	log.Println("Starting API service")
 	defer log.Println("API service stopped")
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	log.Printf("Using config: %s", cfg)
 
 	ca, err := crypto.LoadInternalCA(cfg.CA)
