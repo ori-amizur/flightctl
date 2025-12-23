@@ -21,12 +21,8 @@ var _ Manager = (*manager)(nil)
 // Manager provides the public API for managing image pruning operations.
 type Manager interface {
 	// Prune removes unused container images and OCI artifacts after successful spec reconciliation.
-	// It preserves images required for rollback operations.
+	// It preserves images required for current and desired operations.
 	Prune(ctx context.Context) error
-
-	// PruneOnAlert triggers emergency pruning when critical disk space alerts are detected.
-	// It operates without requiring network connectivity.
-	PruneOnAlert(ctx context.Context) error
 }
 
 // PruningConfig holds configuration for pruning operations.
@@ -69,7 +65,7 @@ func NewManager(
 }
 
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
-// It preserves images required for rollback operations.
+// It preserves images required for current and desired operations.
 func (m *manager) Prune(ctx context.Context) error {
 	if !m.config.Enabled {
 		m.log.Debug("Pruning is disabled, skipping")
@@ -110,71 +106,16 @@ func (m *manager) Prune(ctx context.Context) error {
 
 	m.log.Infof("Pruning complete: removed %d of %d eligible images, %d of %d eligible artifacts", removedImages, len(eligible.Images), removedArtifacts, len(eligible.Artifacts))
 
-	// Validate rollback capability after pruning
-	if err := m.validateRollbackCapability(ctx); err != nil {
-		m.log.Warnf("Rollback capability validation failed after pruning: %v", err)
+	// Validate capability after pruning
+	if err := m.validateCapability(ctx); err != nil {
+		m.log.Warnf("Capability validation failed after pruning: %v", err)
 		// Log warning but don't block reconciliation
 	}
 
 	return nil
 }
 
-// PruneOnAlert triggers emergency pruning when critical disk space alerts are detected.
-// It operates without requiring network connectivity.
-// This method executes the same pruning logic as normal pruning but with emergency logging.
-func (m *manager) PruneOnAlert(ctx context.Context) error {
-	if !m.config.Enabled {
-		m.log.Debug("Pruning is disabled, skipping emergency pruning")
-		return nil
-	}
-
-	m.log.Warn("Emergency pruning triggered due to critical disk space alert")
-
-	// Determine eligible images and artifacts for pruning
-	// Same logic as normal pruning - missing required images cannot be pruned anyway
-	eligible, err := m.determineEligibleImages(ctx)
-	if err != nil {
-		m.log.Warnf("Failed to determine eligible images for emergency pruning: %v", err)
-		// Don't block alert handling on pruning errors
-		return nil
-	}
-
-	totalEligible := len(eligible.Images) + len(eligible.Artifacts)
-	if totalEligible == 0 {
-		m.log.Debug("Emergency pruning: No images or artifacts eligible for pruning")
-		return nil
-	}
-
-	m.log.Warnf("Emergency pruning: Starting removal of %d eligible images and %d eligible artifacts", len(eligible.Images), len(eligible.Artifacts))
-
-	// Remove eligible images and artifacts separately
-	removedImages, err := m.removeEligibleImages(ctx, eligible.Images)
-	if err != nil {
-		m.log.Warnf("Emergency pruning: Image removal completed with errors: %v", err)
-		// Continue with artifact removal even if image removal failed
-	}
-
-	removedArtifacts, err := m.removeEligibleArtifacts(ctx, eligible.Artifacts)
-	if err != nil {
-		m.log.Warnf("Emergency pruning: Artifact removal completed with errors: %v", err)
-		// Continue even if some removals failed - fail-safe pattern
-	} else if removedImages+removedArtifacts > 0 {
-		m.log.Info("Emergency pruning completed successfully")
-		// Alert will be automatically cleared by resource manager if disk space is freed
-	}
-
-	m.log.Warnf("Emergency pruning: Removed %d of %d eligible images, %d of %d eligible artifacts", removedImages, len(eligible.Images), removedArtifacts, len(eligible.Artifacts))
-
-	// Validate rollback capability after pruning
-	if err := m.validateRollbackCapability(ctx); err != nil {
-		m.log.Warnf("Emergency pruning: Rollback capability validation failed: %v", err)
-		// Log warning but don't block - emergency situation
-	}
-
-	return nil
-}
-
-// getImageReferencesFromSpecs extracts image references from current and rollback device specs.
+// getImageReferencesFromSpecs extracts image references from current and desired device specs.
 // It includes both explicit references and nested targets extracted from image-based applications.
 // It uses the spec manager's Read() method to read specs and returns a combined unique list.
 func (m *manager) getImageReferencesFromSpecs(ctx context.Context) ([]string, error) {
@@ -213,17 +154,17 @@ func (m *manager) getImageReferencesFromSpecs(ctx context.Context) ([]string, er
 		}
 	}
 
-	// Read rollback spec (may not exist)
-	rollbackDevice, err := m.specManager.Read(spec.Rollback)
+	// Read desired spec (may not exist)
+	desiredDevice, err := m.specManager.Read(spec.Desired)
 	if err != nil {
-		// Rollback spec may not exist - this is acceptable
-		m.log.Debugf("Rollback spec not available: %v", err)
-	} else if rollbackDevice != nil {
-		rollbackImages, err := m.extractImageReferences(ctx, rollbackDevice)
+		// Desired spec may not exist - this is acceptable
+		m.log.Debugf("Desired spec not available: %v", err)
+	} else if desiredDevice != nil {
+		desiredImages, err := m.extractImageReferences(ctx, desiredDevice)
 		if err != nil {
-			return nil, fmt.Errorf("extracting images from rollback spec: %w", err)
+			return nil, fmt.Errorf("extracting images from desired spec: %w", err)
 		}
-		for _, img := range rollbackImages {
+		for _, img := range desiredImages {
 			if _, seen := imagesSeen[img]; !seen {
 				imagesSeen[img] = struct{}{}
 				allImages = append(allImages, img)
@@ -231,10 +172,10 @@ func (m *manager) getImageReferencesFromSpecs(ctx context.Context) ([]string, er
 		}
 
 		// Extract nested targets from image-based applications
-		nestedImages, err := m.extractNestedTargetsFromSpec(ctx, rollbackDevice)
+		nestedImages, err := m.extractNestedTargetsFromSpec(ctx, desiredDevice)
 		if err != nil {
 			// Log warning but don't fail - nested extraction is best-effort
-			m.log.Warnf("Failed to extract nested targets from rollback spec: %v", err)
+			m.log.Warnf("Failed to extract nested targets from desired spec: %v", err)
 		} else {
 			for _, img := range nestedImages {
 				if _, seen := imagesSeen[img]; !seen {
@@ -248,7 +189,7 @@ func (m *manager) getImageReferencesFromSpecs(ctx context.Context) ([]string, er
 	return allImages, nil
 }
 
-// getOSImageReferences extracts OS image references from current and rollback device specs.
+// getOSImageReferences extracts OS image references from current and desired device specs.
 // OS images are managed by bootc and should never be pruned.
 func (m *manager) getOSImageReferences(ctx context.Context) ([]string, error) {
 	var osImages []string
@@ -267,13 +208,13 @@ func (m *manager) getOSImageReferences(ctx context.Context) ([]string, error) {
 		}
 	}
 
-	// Read rollback spec (may not exist)
-	rollbackDevice, err := m.specManager.Read(spec.Rollback)
+	// Read desired spec (may not exist)
+	desiredDevice, err := m.specManager.Read(spec.Desired)
 	if err != nil {
-		// Rollback spec may not exist - this is acceptable
-		m.log.Debugf("Rollback spec not available for OS images: %v", err)
-	} else if rollbackDevice != nil && rollbackDevice.Spec != nil && rollbackDevice.Spec.Os != nil && rollbackDevice.Spec.Os.Image != "" {
-		osImage := rollbackDevice.Spec.Os.Image
+		// Desired spec may not exist - this is acceptable
+		m.log.Debugf("Desired spec not available for OS images: %v", err)
+	} else if desiredDevice != nil && desiredDevice.Spec != nil && desiredDevice.Spec.Os != nil && desiredDevice.Spec.Os.Image != "" {
+		osImage := desiredDevice.Spec.Os.Image
 		if _, seen := osImagesSeen[osImage]; !seen {
 			osImagesSeen[osImage] = struct{}{}
 			osImages = append(osImages, osImage)
@@ -557,23 +498,23 @@ func (m *manager) extractVolumeImages(volumes []v1beta1.ApplicationVolume) ([]st
 	return images, nil
 }
 
-// validateRollbackCapability verifies that rollback capability is maintained after pruning operations.
-// It checks that current and previous application images still exist, and that OS images are still available.
-func (m *manager) validateRollbackCapability(ctx context.Context) error {
-	m.log.Debug("Validating rollback capability after pruning")
+// validateCapability verifies that capability is maintained after pruning operations.
+// It checks that current and desired application images still exist, and that OS images are still available.
+func (m *manager) validateCapability(ctx context.Context) error {
+	m.log.Debug("Validating capability after pruning")
 
 	// Read current spec
 	currentDevice, err := m.specManager.Read(spec.Current)
 	if err != nil {
-		return fmt.Errorf("reading current spec for rollback validation: %w", err)
+		return fmt.Errorf("reading current spec for validation: %w", err)
 	}
 
-	// Read rollback spec (may not exist)
-	rollbackDevice, err := m.specManager.Read(spec.Rollback)
+	// Read desired spec (may not exist)
+	desiredDevice, err := m.specManager.Read(spec.Desired)
 	if err != nil {
-		m.log.Debugf("Rollback spec not available for validation: %v", err)
-		// Rollback spec may not exist - this is acceptable
-		rollbackDevice = nil
+		m.log.Debugf("Desired spec not available for validation: %v", err)
+		// Desired spec may not exist - this is acceptable
+		desiredDevice = nil
 	}
 
 	var missingImages []string
@@ -606,39 +547,39 @@ func (m *manager) validateRollbackCapability(ctx context.Context) error {
 		}
 	}
 
-	// Validate rollback application images
-	if rollbackDevice != nil && rollbackDevice.Spec != nil {
-		rollbackImages, err := m.extractImageReferences(ctx, rollbackDevice)
+	// Validate desired application images
+	if desiredDevice != nil && desiredDevice.Spec != nil {
+		desiredImages, err := m.extractImageReferences(ctx, desiredDevice)
 		if err != nil {
-			return fmt.Errorf("extracting rollback images for validation: %w", err)
+			return fmt.Errorf("extracting desired images for validation: %w", err)
 		}
-		for _, img := range rollbackImages {
+		for _, img := range desiredImages {
 			exists := m.podmanClient.ImageExists(ctx, img)
 			if !exists {
 				exists = m.podmanClient.ArtifactExists(ctx, img)
 			}
 			if !exists {
 				missingImages = append(missingImages, img)
-				m.log.Warnf("Rollback application image missing after pruning: %s", img)
+				m.log.Warnf("Desired application image missing after pruning: %s", img)
 			}
 		}
 
-		// Validate rollback OS image
-		if rollbackDevice.Spec.Os != nil && rollbackDevice.Spec.Os.Image != "" {
-			osImage := rollbackDevice.Spec.Os.Image
+		// Validate desired OS image
+		if desiredDevice.Spec.Os != nil && desiredDevice.Spec.Os.Image != "" {
+			osImage := desiredDevice.Spec.Os.Image
 			exists := m.podmanClient.ImageExists(ctx, osImage)
 			if !exists {
 				missingImages = append(missingImages, osImage)
-				m.log.Warnf("Rollback OS image missing after pruning: %s", osImage)
+				m.log.Warnf("Desired OS image missing after pruning: %s", osImage)
 			}
 		}
 	}
 
 	if len(missingImages) > 0 {
-		return fmt.Errorf("rollback capability compromised - missing images: %v", missingImages)
+		return fmt.Errorf("capability compromised - missing images: %v", missingImages)
 	}
 
-	m.log.Debug("Rollback capability validated successfully")
+	m.log.Debug("Capability validated successfully")
 	return nil
 }
 

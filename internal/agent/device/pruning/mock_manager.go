@@ -52,17 +52,3 @@ func (mr *MockManagerMockRecorder) Prune(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prune", reflect.TypeOf((*MockManager)(nil).Prune), ctx)
 }
-
-// PruneOnAlert mocks base method.
-func (m *MockManager) PruneOnAlert(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PruneOnAlert", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// PruneOnAlert indicates an expected call of PruneOnAlert.
-func (mr *MockManagerMockRecorder) PruneOnAlert(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PruneOnAlert", reflect.TypeOf((*MockManager)(nil).PruneOnAlert), ctx)
-}

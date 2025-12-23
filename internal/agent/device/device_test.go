@@ -436,9 +436,3 @@ func (m *mockSync) sync(ctx context.Context, currentSpec *v1beta1.Device, desire
 	return nil
 }
 
-// TestAgent_handleCriticalDiskAlerts was removed - emergency pruning is now handled
-// in the disk monitor goroutine (internal/agent/device/resource/disk.go)
-// This test is no longer applicable as the functionality has been moved.
-func TestAgent_handleCriticalDiskAlerts_removed(t *testing.T) {
-	t.Skip("Emergency pruning is now handled in the disk monitor goroutine")
-}

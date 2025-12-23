@@ -224,7 +224,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create pruning manager (needed by resource manager for emergency pruning)
+	// create pruning manager
 	pruningManager := pruning.NewManager(
 		podmanClient,
 		specManager,
@@ -233,10 +233,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.Pruning,
 	)
 
-	// create resource manager (passes pruning manager to disk monitor for emergency pruning)
+	// create resource manager
 	resourceManager := resource.NewManager(
 		a.log,
-		pruningManager,
 	)
 
 	// create hook manager

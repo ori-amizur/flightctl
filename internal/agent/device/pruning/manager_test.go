@@ -227,16 +227,16 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 		wantErrMsg string
 	}{
 		{
-			name: "success with current and rollback specs",
+			name: "success with current and desired specs",
 			setupMocks: func(mockExec *executer.MockExecuter, mock *spec.MockManager) {
 				// Mock nested target extraction - images don't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:current"}).
 					Return("", "", 1).AnyTimes()
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:current"}).
 					Return("", "", 1).AnyTimes()
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:rollback"}).
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:desired"}).
 					Return("", "", 1).AnyTimes()
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:rollback"}).
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:desired"}).
 					Return("", "", 1).AnyTimes()
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
@@ -254,7 +254,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				rollbackDevice := &v1beta1.Device{
+				desiredDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
 						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
 							{
@@ -264,19 +264,19 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 						}),
 					},
 				}
-				rollbackApps := lo.FromPtr(rollbackDevice.Spec.Applications)
-				rollbackImageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:rollback",
+				desiredApps := lo.FromPtr(desiredDevice.Spec.Applications)
+				desiredImageSpec := v1beta1.ImageApplicationProviderSpec{
+					Image: "quay.io/example/app:desired",
 				}
-				require.NoError(rollbackApps[0].FromImageApplicationProviderSpec(rollbackImageSpec))
+				require.NoError(desiredApps[0].FromImageApplicationProviderSpec(desiredImageSpec))
 
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
-				mock.EXPECT().Read(spec.Rollback).Return(rollbackDevice, nil)
+				mock.EXPECT().Read(spec.Desired).Return(desiredDevice, nil)
 			},
-			want: []string{"quay.io/example/app:current", "quay.io/example/app:rollback"},
+			want: []string{"quay.io/example/app:current", "quay.io/example/app:desired"},
 		},
 		{
-			name: "success with current spec only (no rollback)",
+			name: "success with current spec only (no desired)",
 			setupMocks: func(mockExec *executer.MockExecuter, mock *spec.MockManager) {
 				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:current"}).
@@ -303,7 +303,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 				mockImageNotExists("quay.io/example/app:current")
 
 				mock.EXPECT().Read(spec.Current).Return(currentDevice, nil)
-				mock.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback spec not found"))
+				mock.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 			},
 			want: []string{"quay.io/example/app:current"},
 		},
@@ -403,7 +403,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 					Return("", "", 1).AnyTimes() // exit code 1 = artifact doesn't exist
 
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).Times(2)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 
 				// Mock Podman ListImages (called after getImageReferencesFromSpecs)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
@@ -459,8 +459,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).Times(2)
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 			},
 			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // All images are in use
 		},
@@ -497,15 +497,15 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).Times(2)
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 			},
 			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // OS image excluded, unused image eligible
 		},
 		{
-			name: "rollback images preserved",
+			name: "desired images preserved",
 			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock spec manager - current and rollback
+				// Mock spec manager - current and desired
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
 						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
@@ -525,7 +525,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(currentImageSpec))
 
-				rollbackDevice := &v1beta1.Device{
+				desiredDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
 						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
 							{
@@ -538,11 +538,11 @@ func TestManager_determineEligibleImages(t *testing.T) {
 						},
 					},
 				}
-				rollbackApps := lo.FromPtr(rollbackDevice.Spec.Applications)
-				rollbackImageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0", // Previous version
+				desiredApps := lo.FromPtr(desiredDevice.Spec.Applications)
+				desiredImageSpec := v1beta1.ImageApplicationProviderSpec{
+					Image: "quay.io/example/app:v1.0", // Desired version
 				}
-				require.NoError(rollbackApps[0].FromImageApplicationProviderSpec(rollbackImageSpec))
+				require.NoError(desiredApps[0].FromImageApplicationProviderSpec(desiredImageSpec))
 
 				// Mock nested target extraction FIRST - images don't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v2.0"}).
@@ -555,7 +555,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 					Return("", "", 1).AnyTimes() // exit code 1 = artifact doesn't exist
 
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(rollbackDevice, nil).Times(2)
+				mockSpec.EXPECT().Read(spec.Desired).Return(desiredDevice, nil).Times(2)
 
 				// Mock Podman ListImages (called after getImageReferencesFromSpecs)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
@@ -567,7 +567,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
 					Return("", "", 0)
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Both current and rollback app images preserved
+			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Both current and desired app images preserved
 		},
 		{
 			name: "empty device - all images eligible",
@@ -590,8 +590,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 					},
 				}
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).Times(2)
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 			},
 			want: &EligibleItems{Images: []string{"quay.io/example/unused1:v1.0", "quay.io/example/unused2:v1.0"}, Artifacts: []string{}},
 		},
@@ -628,8 +628,8 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).Times(2)
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 			},
 			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Continues with partial results
 		},
@@ -662,7 +662,7 @@ func TestManager_determineEligibleImages(t *testing.T) {
 // as determineEligibleImages already handles all validation correctly by only considering
 // images that exist locally and building a preserve set from required images in specs.
 
-func TestManager_validateRollbackCapability(t *testing.T) {
+func TestManager_validateCapability(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -703,7 +703,7 @@ func TestManager_validateRollbackCapability(t *testing.T) {
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found"))
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 
 				// Mock Podman ImageExists calls
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -734,7 +734,7 @@ func TestManager_validateRollbackCapability(t *testing.T) {
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found"))
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 
 				// Mock Podman ImageExists - image doesn't exist
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -744,7 +744,7 @@ func TestManager_validateRollbackCapability(t *testing.T) {
 					Return("", "", 1)
 			},
 			wantErr:    true,
-			wantErrMsg: "rollback capability compromised",
+			wantErrMsg: "capability compromised",
 		},
 		{
 			name: "success - no rollback spec",
@@ -767,7 +767,7 @@ func TestManager_validateRollbackCapability(t *testing.T) {
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil)
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found"))
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 
 				// Mock Podman ImageExists calls
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -784,7 +784,7 @@ func TestManager_validateRollbackCapability(t *testing.T) {
 			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
 			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
 
-			err := m.validateRollbackCapability(context.Background())
+			err := m.validateCapability(context.Background())
 			if tc.wantErr {
 				require.Error(err)
 				if tc.wantErrMsg != "" {
@@ -883,136 +883,6 @@ func TestManager_removeEligibleImages(t *testing.T) {
 				if tc.wantErrMsg != "" {
 					require.Contains(err.Error(), tc.wantErrMsg)
 				}
-			} else {
-				require.NoError(err)
-			}
-		})
-	}
-}
-
-func TestManager_PruneOnAlert(t *testing.T) {
-	require := require.New(t)
-
-	log := log.NewPrefixLogger("test")
-	readWriter := fileio.NewReadWriter()
-
-	testCases := []struct {
-		name       string
-		setupMocks func(*executer.MockExecuter, *spec.MockManager)
-		config     config.Pruning
-		wantErr    bool
-	}{
-		{
-			name: "success - emergency pruning removes unused images",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock spec manager - current spec
-				currentDevice := &v1beta1.Device{
-					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
-						Os: &v1beta1.DeviceOsSpec{
-							Image: "quay.io/example/os:v1.0",
-						},
-					},
-				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
-
-				// Mock spec reads - called multiple times by determineEligibleImages, validateRollbackCapability
-				// Each calls getImageReferencesFromSpecs (Read Current + Rollback) and getOSImageReferences (Read Current + Rollback)
-				// So 2 methods * 2 reads each = 4 reads of Current and 4 reads of Rollback
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).AnyTimes()
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).AnyTimes()
-
-				// Mock nested target extraction FIRST - image doesn't exist locally (so extraction is skipped)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
-					Return("", "", 1).AnyTimes() // exit code 1 = image doesn't exist
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
-					Return("", "", 1).AnyTimes() // exit code 1 = artifact doesn't exist
-
-				// Mock Podman ListImages
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("quay.io/example/app:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
-
-				// Mock Podman ListArtifacts
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
-					Return("podman version 5.5.0", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
-					Return("", "", 0)
-
-				// Mock ImageExists for validation (validateRollbackCapability)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
-					Return("", "", 0).AnyTimes()
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/os:v1.0"}).
-					Return("", "", 0).AnyTimes()
-
-				// Mock removal of unused image - check exists first, then remove
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/unused:v1.0"}).
-					Return("", "", 0) // Image exists
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "rm", "quay.io/example/unused:v1.0"}).
-					Return("", "", 0) // Image removal succeeds
-			},
-			config:  config.Pruning{Enabled: true},
-			wantErr: false,
-		},
-		{
-			name: "success - continues even if validation fails (emergency situation)",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock spec manager - error reading current spec
-				// determineEligibleImages handles all validation
-				mockSpec.EXPECT().Read(spec.Current).Return(nil, errors.New("failed to read spec")).AnyTimes()
-				mockSpec.EXPECT().Read(spec.Rollback).Return(nil, errors.New("rollback not found")).AnyTimes()
-
-				// Mock Podman ListImages - called before determineEligibleImages fails
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("", "", 0)
-
-				// Mock Podman ListArtifacts - also called before determineEligibleImages fails
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
-					Return("podman version 5.5.0", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
-					Return("", "", 0)
-
-				// Note: determineEligibleImages will fail when trying to read specs, so no removal happens
-				// But the method still returns nil (fail-safe pattern)
-			},
-			config:  config.Pruning{Enabled: true},
-			wantErr: false,
-		},
-		{
-			name: "success - disabled pruning",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// No mocks needed - pruning is disabled
-			},
-			config:  config.Pruning{Enabled: false},
-			wantErr: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Create new controller for each test to avoid expectation leaks
-			testCtrl := gomock.NewController(t)
-			defer testCtrl.Finish()
-
-			testMockExec := executer.NewMockExecuter(testCtrl)
-			testMockSpecManager := spec.NewMockManager(testCtrl)
-
-			tc.setupMocks(testMockExec, testMockSpecManager)
-
-			podmanClient := client.NewPodman(log, testMockExec, readWriter, poll.Config{})
-			m := NewManager(podmanClient, testMockSpecManager, readWriter, log, tc.config).(*manager)
-
-			err := m.PruneOnAlert(context.Background())
-			if tc.wantErr {
-				require.Error(err)
 			} else {
 				require.NoError(err)
 			}

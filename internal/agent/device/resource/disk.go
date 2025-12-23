@@ -26,30 +26,17 @@ type DiskMonitor struct {
 	updateIntervalCh chan time.Duration
 	samplingInterval time.Duration
 
-	log            *log.PrefixLogger
-	pruningManager EmergencyPruner
-
-	// lastEmergencyPrune tracks when emergency pruning was last triggered to prevent thrashing
-	lastEmergencyPruneMu sync.Mutex
-	lastEmergencyPrune   time.Time
-}
-
-// EmergencyPruner is an interface for triggering emergency pruning when critical disk alerts are detected.
-// This interface is implemented by the pruning manager to avoid import cycles.
-type EmergencyPruner interface {
-	PruneOnAlert(ctx context.Context) error
+	log *log.PrefixLogger
 }
 
 func NewDiskMonitor(
 	log *log.PrefixLogger,
-	pruningManager EmergencyPruner,
 ) *DiskMonitor {
 	return &DiskMonitor{
 		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
 		updateIntervalCh: make(chan time.Duration, 1),
 		samplingInterval: DefaultSamplingInterval,
 		log:              log,
-		pruningManager:   pruningManager,
 	}
 }
 
@@ -147,9 +134,6 @@ func (m *DiskMonitor) sync(ctx context.Context, usage *DiskUsage) {
 	}
 
 	m.ensureAlerts(usage.UsedPercent)
-
-	// Trigger emergency pruning if critical alert is firing
-	m.handleCriticalDiskAlerts(ctx)
 }
 
 func (m *DiskMonitor) ensureAlerts(percentageUsed int64) {
@@ -172,57 +156,6 @@ func (m *DiskMonitor) getSamplingInterval() time.Duration {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.samplingInterval
-}
-
-// handleCriticalDiskAlerts checks for critical disk space alerts and triggers emergency pruning.
-// It prevents thrashing by only triggering pruning once per minute.
-func (m *DiskMonitor) handleCriticalDiskAlerts(ctx context.Context) {
-	if m.pruningManager == nil {
-		return
-	}
-
-	// Check if there's a critical disk alert
-	m.mu.Lock()
-	hasCriticalAlert := false
-	for _, alert := range m.alerts {
-		if alert.Severity == v1beta1.ResourceAlertSeverityTypeCritical && alert.IsFiring() {
-			hasCriticalAlert = true
-			break
-		}
-	}
-	m.mu.Unlock()
-
-	if !hasCriticalAlert {
-		return
-	}
-
-	// Prevent thrashing: only trigger emergency pruning once per minute
-	m.lastEmergencyPruneMu.Lock()
-	timeSinceLastPrune := time.Since(m.lastEmergencyPrune)
-	m.lastEmergencyPruneMu.Unlock()
-
-	const minPruneInterval = 1 * time.Minute
-	if timeSinceLastPrune < minPruneInterval {
-		m.log.Debugf("Emergency pruning triggered recently (%v ago), skipping to prevent thrashing", timeSinceLastPrune)
-		return
-	}
-
-	m.log.Warn("Critical disk space alert detected, triggering emergency pruning")
-
-	// Update last prune time before triggering (optimistic)
-	m.lastEmergencyPruneMu.Lock()
-	m.lastEmergencyPrune = time.Now()
-	m.lastEmergencyPruneMu.Unlock()
-
-	// Trigger emergency pruning (non-blocking, fail-safe)
-	if err := m.pruningManager.PruneOnAlert(ctx); err != nil {
-		m.log.Warnf("Emergency pruning completed with errors: %v", err)
-		// Don't block monitoring on pruning errors
-	} else {
-		m.log.Info("Emergency pruning completed successfully")
-		// Alert will be automatically cleared by resource manager if disk space is freed
-		// No need to manually clear - resource manager monitors disk usage continuously
-	}
 }
 
 // DiskUsage represents the tracked Disk usage of this device.
