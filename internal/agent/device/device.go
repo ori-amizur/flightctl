@@ -218,6 +218,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 	}
 
 	// reconciliation is a success, upgrade the current spec
+	// This updates the spec files to reflect that all managers have successfully applied the changes
 	if err := a.specManager.Upgrade(ctx); err != nil {
 		if errors.IsContext(err) {
 			a.log.Debugf("Sync is shutting down : %v", err)
@@ -225,6 +226,16 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 		}
 		a.log.Errorf("Failed to upgrade spec: %v", err)
 		return
+	}
+
+	// execute pruning after successful spec application and update
+	// All managers have read and applied the spec changes, and the spec files have been updated
+	// Pruning errors are logged but don't block reconciliation
+	if a.pruningManager != nil {
+		if err := a.pruningManager.Prune(ctx); err != nil {
+			a.log.Warnf("Pruning completed with errors: %v", err)
+			// Don't return error - pruning failures must not block reconciliation
+		}
 	}
 
 	if err := a.updatedStatus(ctx, desired); err != nil {
@@ -456,15 +467,6 @@ func (a *Agent) afterUpdate(ctx context.Context, current, desired *v1beta1.Devic
 	if err := a.appManager.AfterUpdate(ctx); err != nil {
 		a.log.Errorf("Error executing actions: %v", err)
 		return err
-	}
-
-	// execute pruning after all other AfterUpdate hooks complete
-	// Pruning errors are logged but don't block reconciliation
-	if a.pruningManager != nil {
-		if err := a.pruningManager.Prune(ctx); err != nil {
-			a.log.Warnf("Pruning completed with errors: %v", err)
-			// Don't return error - pruning failures must not block reconciliation
-		}
 	}
 
 	return nil
