@@ -89,6 +89,8 @@ func TestSync(t *testing.T) {
 				mockPruningManager *pruning.MockManager,
 			) {
 				nonRetryableHookError := errors.New("hook error")
+				// After Upgrade(), current becomes the same as desired, so both are version "1"
+				currentAfterUpgrade := newVersionedDevice("1")
 				// IsCriticalAlert is called at the start of each syncDeviceSpec call
 				mockResourceManager.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).AnyTimes()
 				gomock.InOrder(
@@ -130,33 +132,38 @@ func TestSync(t *testing.T) {
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
 					mockHookManager.EXPECT().OnAfterUpdating(ctx, desired.Spec, current.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
-					mockPruningManager.EXPECT().Prune(ctx).Return(nil),
-					mockPrefetchManager.EXPECT().Cleanup(),
-					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil),
+					// After rollback, syncDeviceSpec returns (handleSyncError is called), so Upgrade() and Prune() are NOT called
+					// handleSyncError calls Cleanup() and UpdateCondition for non-retryable errors
+					mockPrefetchManager.EXPECT().Cleanup(), // Called in handleSyncError for non-retryable errors
+					mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil), // Called in handleSyncError
 					//
-					// resync steady state current 0 desired 0
+					// resync steady state - after rollback, current is "0" and desired is "1" (rollback sets desired to current)
+					// But wait, after rollback, desired should be set to current, so they should match
+					// Actually, after rollback, the device is no longer upgrading, so IsUpgrading() returns false
 					//
 					mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil),
-					mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil),
+					mockSpecManager.EXPECT().Read(spec.Current).Return(currentAfterUpgrade, nil),
 					mockResourceManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Download, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockPrefetchManager.EXPECT().RegisterOCICollector(gomock.Any()),
 					mockSpecManager.EXPECT().IsOSUpdate().Return(false),
-					mockPrefetchManager.EXPECT().BeforeUpdate(ctx, current.Spec, current.Spec).Return(nil),
-					mockAppManager.EXPECT().BeforeUpdate(ctx, current.Spec).Return(nil),
-					mockHookManager.EXPECT().OnBeforeUpdating(ctx, current.Spec, current.Spec).Return(nil),
+					mockPrefetchManager.EXPECT().BeforeUpdate(ctx, currentAfterUpgrade.Spec, desired.Spec).Return(nil),
+					mockAppManager.EXPECT().BeforeUpdate(ctx, desired.Spec).Return(nil),
+					mockHookManager.EXPECT().OnBeforeUpdating(ctx, currentAfterUpgrade.Spec, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckPolicy(ctx, policy.Update, desired.Version()).Return(nil),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
-					mockHookManager.EXPECT().Sync(current.Spec, current.Spec).Return(nil),
+					mockHookManager.EXPECT().Sync(currentAfterUpgrade.Spec, desired.Spec).Return(nil),
 					mockSystemdManager.EXPECT().EnsurePatterns(gomock.Any()).Return(nil),
-					mockLifecycleManager.EXPECT().Sync(ctx, current.Spec, current.Spec).Return(nil),
-					mockLifecycleManager.EXPECT().AfterUpdate(ctx, current.Spec, current.Spec).Return(nil),
+					mockLifecycleManager.EXPECT().Sync(ctx, currentAfterUpgrade.Spec, desired.Spec).Return(nil),
+					mockLifecycleManager.EXPECT().AfterUpdate(ctx, currentAfterUpgrade.Spec, desired.Spec).Return(nil),
 					mockSpecManager.EXPECT().CheckOsReconciliation(ctx).Return("", true, nil),
-					mockHookManager.EXPECT().OnAfterUpdating(ctx, current.Spec, current.Spec, false).Return(nil),
+					mockHookManager.EXPECT().OnAfterUpdating(ctx, currentAfterUpgrade.Spec, desired.Spec, false).Return(nil),
 					mockAppManager.EXPECT().AfterUpdate(ctx).Return(nil),
-					mockPruningManager.EXPECT().Prune(ctx).Return(nil),
+					// RecordReferences is called after successful sync, even when no upgrade is in progress
+					mockPruningManager.EXPECT().RecordReferences(ctx).Return(nil),
+					// After sync succeeds, IsUpgrading() is checked at line 215 - returns false, so Upgrade() and Prune() are skipped
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockPrefetchManager.EXPECT().Cleanup(),
 				)

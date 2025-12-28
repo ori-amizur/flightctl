@@ -210,6 +210,15 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 
 	defer a.prefetchManager.Cleanup()
 
+	// Record image/artifact references even if no upgrade is in progress
+	// This ensures the references file exists for future pruning operations
+	if a.pruningManager != nil {
+		if err := a.pruningManager.RecordReferences(ctx); err != nil {
+			a.log.Warnf("Failed to record image/artifact references: %v", err)
+			// Don't return error - reference recording failures must not block reconciliation
+		}
+	}
+
 	// skip status update if the device is in a steady state and not upgrading.
 	// also ensures previous failed status is not overwritten.
 	if !a.specManager.IsUpgrading() {

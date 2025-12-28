@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -197,6 +198,9 @@ func NewDefault() *Config {
 			StorageFilePath: filepath.Join(DefaultDataDir, DefaultTPMKeyFile),
 		},
 		AuditLog: *audit.NewDefaultAuditConfig(),
+		Pruning: Pruning{
+			Enabled: false, // Default to enabled
+		},
 	}
 
 	if value := os.Getenv(TestRootDirEnvKey); value != "" {
@@ -406,10 +410,78 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 		mergeConfigs(cfg, overrideCfg)
 	}
 
+	// Load pruning config from file dropins (similar to cert dropins)
+	// This allows pruning config to be managed via ConfigProviderSpec
+	if err := cfg.loadPruningFromDropins(); err != nil {
+		return fmt.Errorf("loading pruning config from dropins: %w", err)
+	}
+
 	if err := cfg.Complete(); err != nil {
 		return err
 	}
 	return cfg.Validate()
+}
+
+// loadPruningFromDropins loads pruning configuration from a base file and drop-in directory.
+// Base file: /etc/flightctl/pruning.yaml (optional)
+// Drop-ins: /etc/flightctl/pruning.d/*.yaml (optional, applied in lexical order)
+// Drop-ins override the base file, and later drop-ins override earlier ones.
+// The pruning config can be managed via ConfigProviderSpec in the device spec.
+func (cfg *Config) loadPruningFromDropins() error {
+	basePath := filepath.Join(cfg.ConfigDir, "pruning.yaml")
+	dropinDir := filepath.Join(cfg.ConfigDir, "pruning.d")
+
+	// Read base file (optional)
+	if data, err := cfg.readWriter.ReadFile(basePath); err == nil {
+		var pruningCfg Pruning
+		if err := yaml.Unmarshal(data, &pruningCfg); err != nil {
+			return fmt.Errorf("parsing base pruning config %s: %w", basePath, err)
+		}
+		// Apply base config
+		cfg.Pruning.Enabled = pruningCfg.Enabled
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("reading base pruning config %s: %w", basePath, err)
+	}
+
+	// Read drop-ins (optional)
+	entries, err := cfg.readWriter.ReadDir(dropinDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No drop-in directory, that's fine
+			return nil
+		}
+		return fmt.Errorf("reading drop-in directory %s: %w", dropinDir, err)
+	}
+
+	// Sort entries lexically to ensure deterministic order
+	var yamlFiles []string
+	re := regexp.MustCompile(`^.*\.ya?ml$`)
+	for _, entry := range entries {
+		if entry.IsDir() || !re.MatchString(entry.Name()) {
+			continue
+		}
+		yamlFiles = append(yamlFiles, entry.Name())
+	}
+	sort.Strings(yamlFiles)
+
+	// Apply drop-ins in order (later files override earlier ones)
+	for _, filename := range yamlFiles {
+		dropinPath := filepath.Join(dropinDir, filename)
+		data, err := cfg.readWriter.ReadFile(dropinPath)
+		if err != nil {
+			return fmt.Errorf("reading drop-in %s: %w", dropinPath, err)
+		}
+
+		var pruningCfg Pruning
+		if err := yaml.Unmarshal(data, &pruningCfg); err != nil {
+			return fmt.Errorf("parsing drop-in %s: %w", dropinPath, err)
+		}
+
+		// Apply drop-in config (overrides base and previous drop-ins)
+		cfg.Pruning.Enabled = pruningCfg.Enabled
+	}
+
+	return nil
 }
 
 func mergeConfigs(base, override *Config) {
@@ -434,6 +506,9 @@ func mergeConfigs(base, override *Config) {
 	// instrumentation
 	overrideIfNotEmpty(&base.MetricsEnabled, override.MetricsEnabled)
 	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
+
+	// pruning
+	overrideIfNotEmpty(&base.Pruning.Enabled, override.Pruning.Enabled)
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v

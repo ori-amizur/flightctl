@@ -256,15 +256,11 @@ func (c *OCITargetCache) CollectNestedTargetReferencesFromSpec(
 	}
 
 	refsSeen := make(map[string]struct{})
-	var references []string
 	for _, target := range targets {
 		if target.Reference != "" {
-			if _, seen := refsSeen[target.Reference]; !seen {
-				refsSeen[target.Reference] = struct{}{}
-				references = append(references, target.Reference)
-			}
+			refsSeen[target.Reference] = struct{}{}
 		}
 	}
 
-	return references, nil
+	return lo.Keys(refsSeen), nil
 }

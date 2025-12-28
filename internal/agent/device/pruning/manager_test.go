@@ -2,7 +2,9 @@ package pruning
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
@@ -30,7 +32,7 @@ func TestManager_extractImageReferences(t *testing.T) {
 	mockSpecManager := spec.NewMockManager(ctrl)
 	config := config.Pruning{Enabled: true}
 
-	m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
+	m := NewManager(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 	testCases := []struct {
 		name        string
@@ -208,7 +210,7 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 	mockSpecManager := spec.NewMockManager(ctrl)
 	config := config.Pruning{Enabled: true}
 
-	m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
+	m := NewManager(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 	// Helper to mock image existence checks for nested target extraction
 	// For most tests, we'll mock that images don't exist locally (so nested extraction is skipped)
@@ -356,25 +358,95 @@ func TestManager_getImageReferencesFromSpecs(t *testing.T) {
 
 func TestManager_determineEligibleImages(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	log := log.NewPrefixLogger("test")
-	mockExec := executer.NewMockExecuter(ctrl)
-	readWriter := fileio.NewReadWriter()
-	mockSpecManager := spec.NewMockManager(ctrl)
 	config := config.Pruning{Enabled: true}
 
 	testCases := []struct {
 		name       string
-		setupMocks func(*executer.MockExecuter, *spec.MockManager)
+		setupMocks func(*executer.MockExecuter, *spec.MockManager, fileio.ReadWriter, string)
 		want       *EligibleItems
 		wantErr    bool
 		wantErrMsg string
 	}{
 		{
-			name: "success with unused images",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
+			name: "success with previously referenced but now unused images",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with images/artifacts that are no longer referenced
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/old-app:v1.0", "quay.io/example/unused:v1.0"},
+					Artifacts: []string{"quay.io/example/artifact:v1.0"},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Mock spec manager - current spec only references app:v1.0, not the old ones
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
+							{
+								Name:    lo.ToPtr("app1"),
+								AppType: v1beta1.AppTypeContainer,
+							},
+						}),
+						Os: &v1beta1.DeviceOsSpec{
+							Image: "quay.io/example/os:v1.0",
+						},
+					},
+				}
+				apps := lo.FromPtr(currentDevice.Spec.Applications)
+				imageSpec := v1beta1.ImageApplicationProviderSpec{
+					Image: "quay.io/example/app:v1.0",
+				}
+				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
+
+				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
+					Return("", "", 1).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
+					Return("", "", 1).AnyTimes()
+
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+
+				// Mock Podman ListImages - includes the previously referenced but now unused images
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+					Return("quay.io/example/app:v1.0\nquay.io/example/unused:v1.0\nquay.io/example/old-app:v1.0\n", "", 0)
+
+				// Mock Podman ListArtifacts
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
+					Return("quay.io/example/artifact:v1.0\n", "", 0)
+			},
+			want: &EligibleItems{
+				Images:    []string{"quay.io/example/unused:v1.0", "quay.io/example/old-app:v1.0"},
+				Artifacts: []string{"quay.io/example/artifact:v1.0"},
+			},
+		},
+		{
+			name: "all images in use - no eligible images",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file - all images are still referenced
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/app:v1.0"},
+					Artifacts: []string{},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
 				// Mock spec manager FIRST - needed for getImageReferencesFromSpecs
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
@@ -395,43 +467,68 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
-				// This must come before ListImages because getImageReferencesFromSpecs is called first
+				// Podman version check happens when Podman client methods are called
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0).AnyTimes()
+
+				// Mock nested target extraction - images don't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
 					Return("", "", 1).AnyTimes() // exit code 1 = image doesn't exist
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
 					Return("", "", 1).AnyTimes() // exit code 1 = artifact doesn't exist
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/os:v1.0"}).
+					Return("", "", 1).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/os:v1.0"}).
+					Return("", "", 1).AnyTimes()
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
-
-				// Mock Podman ListImages (called after getImageReferencesFromSpecs)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("quay.io/example/app:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
-
-				// Mock Podman ListArtifacts (version check + list)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
-					Return("podman version 5.5.0", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
-					Return("quay.io/example/artifact:v1.0\n", "", 0)
-			},
-			want: &EligibleItems{
-				Images:    []string{"quay.io/example/unused:v1.0"},
-				Artifacts: []string{"quay.io/example/artifact:v1.0"},
-			},
-		},
-		{
-			name: "all images in use - no eligible images",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock Podman ListImages
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("quay.io/example/app:v1.0\n", "", 0)
-
-				// Mock Podman ListArtifacts
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
-					Return("podman version 5.5.0", "", 0)
+				// ListImages and ListArtifacts are called early (before reading specs) to categorize current references
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", "{{if and .Repository (ne .Repository \"<none>\")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}"}).
+					Return("quay.io/example/app:v1.0\nquay.io/example/os:v1.0\n", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
 					Return("", "", 0)
+
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+			},
+			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // All images are in use
+		},
+		{
+			name: "OS images can be pruned if they lose references",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with unused image and OS image
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/unused:v1.0", "quay.io/example/old-os:v1.0"},
+					Artifacts: []string{},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
+
+				// Mock spec manager FIRST - needed for getImageReferencesFromSpecs
+				currentDevice := &v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{
+						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
+							{
+								Name:    lo.ToPtr("app1"),
+								AppType: v1beta1.AppTypeContainer,
+							},
+						}),
+						Os: &v1beta1.DeviceOsSpec{
+							Image: "quay.io/example/new-os:v1.0", // Different OS image
+						},
+					},
+				}
+				apps := lo.FromPtr(currentDevice.Spec.Applications)
+				imageSpec := v1beta1.ImageApplicationProviderSpec{
+					Image: "quay.io/example/app:v1.0",
+				}
+				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
 				// Mock nested target extraction - image doesn't exist locally (so extraction is skipped)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
@@ -439,72 +536,38 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
 					Return("", "", 1).AnyTimes()
 
-				// Mock spec manager
-				currentDevice := &v1beta1.Device{
-					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
-						Os: &v1beta1.DeviceOsSpec{
-							Image: "quay.io/example/os:v1.0",
-						},
-					},
-				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
-			},
-			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // All images are in use
-		},
-		{
-			name: "OS images excluded from eligible list",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock Podman ListImages - includes OS image
+				// Mock Podman ListImages - includes old OS image and unused image (called after getImageReferencesFromSpecs)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("quay.io/example/app:v1.0\nquay.io/example/os:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
+					Return("quay.io/example/app:v1.0\nquay.io/example/new-os:v1.0\nquay.io/example/old-os:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
 
 				// Mock Podman ListArtifacts
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
 					Return("podman version 5.5.0", "", 0)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
 					Return("", "", 0)
-
-				// Mock spec manager
-				currentDevice := &v1beta1.Device{
-					Spec: &v1beta1.DeviceSpec{
-						Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{
-							{
-								Name:    lo.ToPtr("app1"),
-								AppType: v1beta1.AppTypeContainer,
-							},
-						}),
-						Os: &v1beta1.DeviceOsSpec{
-							Image: "quay.io/example/os:v1.0",
-						},
-					},
-				}
-				apps := lo.FromPtr(currentDevice.Spec.Applications)
-				imageSpec := v1beta1.ImageApplicationProviderSpec{
-					Image: "quay.io/example/app:v1.0",
-				}
-				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
-
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
 			},
-			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // OS image excluded, unused image eligible
+			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0", "quay.io/example/old-os:v1.0"}, Artifacts: []string{}}, // Both unused image and old OS image are eligible
 		},
 		{
 			name: "desired images preserved",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with unused image (not in current or desired)
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/unused:v1.0"},
+					Artifacts: []string{},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 				// Mock spec manager - current and desired
 				currentDevice := &v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{
@@ -554,8 +617,9 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
 					Return("", "", 1).AnyTimes() // exit code 1 = artifact doesn't exist
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2)
-				mockSpec.EXPECT().Read(spec.Desired).Return(desiredDevice, nil).Times(2)
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(desiredDevice, nil).Times(1)
 
 				// Mock Podman ListImages (called after getImageReferencesFromSpecs)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
@@ -571,7 +635,20 @@ func TestManager_determineEligibleImages(t *testing.T) {
 		},
 		{
 			name: "empty device - all images eligible",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with images that are no longer referenced
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/unused1:v1.0", "quay.io/example/unused2:v1.0"},
+					Artifacts: []string{},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 				// Mock Podman ListImages
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("quay.io/example/unused1:v1.0\nquay.io/example/unused2:v1.0\n", "", 0)
@@ -590,23 +667,34 @@ func TestManager_determineEligibleImages(t *testing.T) {
 					},
 				}
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
 			},
 			want: &EligibleItems{Images: []string{"quay.io/example/unused1:v1.0", "quay.io/example/unused2:v1.0"}, Artifacts: []string{}},
 		},
 		{
 			name: "partial failure - continues with available data",
-			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager) {
-				// Mock Podman ListImages - succeeds
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
-					Return("quay.io/example/app:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Create previous references file with unused image
+				previousRefs := ImageArtifactReferences{
+					Timestamp: "2025-01-01T00:00:00Z",
+					Images:    []string{"quay.io/example/unused:v1.0"},
+					Artifacts: []string{},
+				}
+				jsonData, err := json.Marshal(previousRefs)
+				require.NoError(err)
+				// Ensure directory exists
+				require.NoError(readWriter.MkdirAll(dataDir, fileio.DefaultDirectoryPermissions))
+				// Write file using readWriter to match how the manager reads it
+				filePath := filepath.Join(dataDir, ReferencesFileName)
+				require.NoError(readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions))
 
-				// Mock Podman ListArtifacts - fails
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
-					Return("podman version 5.5.0", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
-					Return("", "error: failed to list artifacts", 1)
+				// Mock nested target extraction FIRST - image doesn't exist locally (so extraction is skipped)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
+					Return("", "", 1).AnyTimes()
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/example/app:v1.0"}).
+					Return("", "", 1).AnyTimes()
 
 				// Mock spec manager
 				currentDevice := &v1beta1.Device{
@@ -628,19 +716,50 @@ func TestManager_determineEligibleImages(t *testing.T) {
 				}
 				require.NoError(apps[0].FromImageApplicationProviderSpec(imageSpec))
 
-				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(2) // Called for apps and OS
-				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(2) // Called for apps and OS
+				// getImageReferencesFromSpecs now includes OS images via extractImageReferences, so only one Read per spec
+				mockSpec.EXPECT().Read(spec.Current).Return(currentDevice, nil).Times(1)
+				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found")).Times(1)
+
+				// Mock Podman ListImages - succeeds (called after getImageReferencesFromSpecs)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+					Return("quay.io/example/app:v1.0\nquay.io/example/unused:v1.0\n", "", 0)
+
+				// Mock Podman ListArtifacts - fails
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"--version"}).
+					Return("podman version 5.5.0", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"artifact", "ls", "--format", "{{.Name}}"}).
+					Return("", "error: failed to list artifacts", 1)
 			},
 			want: &EligibleItems{Images: []string{"quay.io/example/unused:v1.0"}, Artifacts: []string{}}, // Continues with partial results
+		},
+		{
+			name: "no previous references file - nothing eligible",
+			setupMocks: func(mockExec *executer.MockExecuter, mockSpec *spec.MockManager, readWriter fileio.ReadWriter, dataDir string) {
+				// Don't create previous references file - simulates first run
+				// No mocks needed since we return early
+			},
+			want: &EligibleItems{Images: []string{}, Artifacts: []string{}}, // No previous file, so nothing to prune
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks(mockExec, mockSpecManager)
+			// Create a new controller for each test case to avoid shared mock state
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
-			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
+
+			// Create a temporary directory for the test
+			tmpDir := t.TempDir()
+			// Create a new readWriter for each test to avoid shared state
+			testReadWriter := fileio.NewReadWriter()
+			testReadWriter.SetRootdir(tmpDir)
+			tc.setupMocks(mockExec, mockSpecManager, testReadWriter, tmpDir)
+
+			podmanClient := client.NewPodman(log, mockExec, testReadWriter, poll.Config{})
+			m := NewManager(podmanClient, mockSpecManager, testReadWriter, log, config, tmpDir).(*manager)
 
 			got, err := m.determineEligibleImages(context.Background())
 			if tc.wantErr {
@@ -706,10 +825,12 @@ func TestManager_validateCapability(t *testing.T) {
 				mockSpec.EXPECT().Read(spec.Desired).Return(nil, errors.New("desired not found"))
 
 				// Mock Podman ImageExists calls
+				// extractImageReferences now includes OS images, so app image is checked first, then OS image
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/app:v1.0"}).
 					Return("", "", 0)
+				// OS image is also checked as part of extractImageReferences validation
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "exists", "quay.io/example/os:v1.0"}).
-					Return("", "", 0)
+					Return("", "", 0).AnyTimes() // May be called multiple times (in extractImageReferences and validateCapability)
 			},
 			wantErr: false,
 		},
@@ -782,7 +903,7 @@ func TestManager_validateCapability(t *testing.T) {
 			tc.setupMocks(mockExec, mockSpecManager)
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
-			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
+			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
 			err := m.validateCapability(context.Background())
 			if tc.wantErr {
@@ -874,9 +995,9 @@ func TestManager_removeEligibleImages(t *testing.T) {
 			tc.setupMocks(mockExec)
 
 			podmanClient := client.NewPodman(log, mockExec, readWriter, poll.Config{})
-			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config).(*manager)
+			m := NewManager(podmanClient, mockSpecManager, readWriter, log, config, "/tmp").(*manager)
 
-			count, err := m.removeEligibleImages(context.Background(), tc.images)
+			count, removedRefs, err := m.removeEligibleImages(context.Background(), tc.images)
 			require.Equal(tc.wantCount, count)
 			if tc.wantErr {
 				require.Error(err)
@@ -885,6 +1006,8 @@ func TestManager_removeEligibleImages(t *testing.T) {
 				}
 			} else {
 				require.NoError(err)
+				// Verify that removedRefs matches the expected count
+				require.Equal(tc.wantCount, len(removedRefs))
 			}
 		})
 	}

@@ -231,6 +231,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		deviceReadWriter,
 		a.log,
 		a.config.Pruning,
+		a.config.DataDir,
 	)
 
 	// create resource manager

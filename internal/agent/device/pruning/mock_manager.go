@@ -52,3 +52,17 @@ func (mr *MockManagerMockRecorder) Prune(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prune", reflect.TypeOf((*MockManager)(nil).Prune), ctx)
 }
+
+// RecordReferences mocks base method.
+func (m *MockManager) RecordReferences(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordReferences", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordReferences indicates an expected call of RecordReferences.
+func (mr *MockManagerMockRecorder) RecordReferences(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordReferences", reflect.TypeOf((*MockManager)(nil).RecordReferences), ctx)
+}
