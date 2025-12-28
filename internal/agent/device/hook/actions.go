@@ -153,6 +153,9 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		return err
 	}
 	envVars := util.LabelMapToArray(action.EnvVars)
+	
+	// Inject agent PID as environment variable for hooks to use
+	envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_AGENT_PID=%d", os.Getpid()))
 
 	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	if exitCode != 0 {

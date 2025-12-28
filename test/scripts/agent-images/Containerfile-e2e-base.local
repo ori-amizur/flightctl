@@ -39,20 +39,14 @@ RUN if [[ -n "$BREW_BUILD_URL" ]]; then \
     echo "Cleaning up build files from /tmp/bin" && \
     rm -rf /tmp/bin
 
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y epel-release epel-next-release
+RUN dnf install -y epel-release epel-next-release && rm -rf /var/cache/dnf/{metadata,dbcache}
 
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y python-dotenv
+RUN dnf install -y python-dotenv && rm -rf /var/cache/dnf/{metadata,dbcache}
 
-RUN --mount=type=cache,target=/var/cache/dnf \
-    --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+RUN dnf clean packages && dnf install -y greenboot greenboot-default-health-checks podman-compose && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
-    systemctl enable podman.service
+    systemctl enable podman.service && rm -rf /var/cache/dnf/{metadata,dbcache}
 
 
 RUN useradd -ms /bin/bash user && \

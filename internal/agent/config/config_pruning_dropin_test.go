@@ -9,69 +9,132 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadPruningFromDropins(t *testing.T) {
+func TestLoadPruningFromConfig(t *testing.T) {
 	tests := []struct {
 		name            string
-		setupFiles      func(t *testing.T, configDir string)
+		setupFiles      func(t *testing.T, configDir string) string
 		expectedEnabled bool
 		wantErr         bool
 	}{
 		{
-			name: "no pruning files - uses default",
-			setupFiles: func(t *testing.T, configDir string) {
-				// No files created
+			name: "no config files - uses default",
+			setupFiles: func(t *testing.T, configDir string) string {
+				configFile := filepath.Join(configDir, "config.yaml")
+				content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+`
+				require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
+				return configFile
 			},
 			expectedEnabled: false, // Default from NewDefault()
 		},
 		{
-			name: "base file enables pruning",
-			setupFiles: func(t *testing.T, configDir string) {
-				basePath := filepath.Join(configDir, "pruning.yaml")
-				content := "enabled: true\n"
-				require.NoError(t, os.WriteFile(basePath, []byte(content), 0644))
+			name: "base config file enables pruning",
+			setupFiles: func(t *testing.T, configDir string) string {
+				configFile := filepath.Join(configDir, "config.yaml")
+				content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+pruning:
+  enabled: true
+`
+				require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
+				return configFile
 			},
 			expectedEnabled: true,
 		},
 		{
-			name: "base file disables pruning",
-			setupFiles: func(t *testing.T, configDir string) {
-				basePath := filepath.Join(configDir, "pruning.yaml")
-				content := "enabled: false\n"
-				require.NoError(t, os.WriteFile(basePath, []byte(content), 0644))
+			name: "base config file disables pruning",
+			setupFiles: func(t *testing.T, configDir string) string {
+				configFile := filepath.Join(configDir, "config.yaml")
+				content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+pruning:
+  enabled: false
+`
+				require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
+				return configFile
 			},
 			expectedEnabled: false,
 		},
 		{
-			name: "dropin overrides base file",
-			setupFiles: func(t *testing.T, configDir string) {
+			name: "dropin overrides base config file",
+			setupFiles: func(t *testing.T, configDir string) string {
 				// Base file enables
-				basePath := filepath.Join(configDir, "pruning.yaml")
-				require.NoError(t, os.WriteFile(basePath, []byte("enabled: true\n"), 0644))
+				configFile := filepath.Join(configDir, "config.yaml")
+				content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+pruning:
+  enabled: true
+`
+				require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
 				// Dropin disables
-				dropinDir := filepath.Join(configDir, "pruning.d")
+				dropinDir := filepath.Join(configDir, "conf.d")
 				require.NoError(t, os.MkdirAll(dropinDir, 0755))
 				dropinPath := filepath.Join(dropinDir, "01-disable.yaml")
-				require.NoError(t, os.WriteFile(dropinPath, []byte("enabled: false\n"), 0644))
+				require.NoError(t, os.WriteFile(dropinPath, []byte("pruning:\n  enabled: false\n"), 0644))
+				return configFile
 			},
 			expectedEnabled: false,
 		},
 		{
 			name: "multiple dropins - later overrides earlier",
-			setupFiles: func(t *testing.T, configDir string) {
-				dropinDir := filepath.Join(configDir, "pruning.d")
+			setupFiles: func(t *testing.T, configDir string) string {
+				configFile := filepath.Join(configDir, "config.yaml")
+				content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+`
+				require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
+				dropinDir := filepath.Join(configDir, "conf.d")
 				require.NoError(t, os.MkdirAll(dropinDir, 0755))
 				// First dropin enables
-				require.NoError(t, os.WriteFile(filepath.Join(dropinDir, "01-enable.yaml"), []byte("enabled: true\n"), 0644))
+				require.NoError(t, os.WriteFile(filepath.Join(dropinDir, "01-enable.yaml"), []byte("pruning:\n  enabled: true\n"), 0644))
 				// Second dropin disables (should win)
-				require.NoError(t, os.WriteFile(filepath.Join(dropinDir, "02-disable.yaml"), []byte("enabled: false\n"), 0644))
+				require.NoError(t, os.WriteFile(filepath.Join(dropinDir, "02-disable.yaml"), []byte("pruning:\n  enabled: false\n"), 0644))
+				return configFile
 			},
 			expectedEnabled: false,
 		},
 		{
-			name: "invalid YAML in base file",
-			setupFiles: func(t *testing.T, configDir string) {
-				basePath := filepath.Join(configDir, "pruning.yaml")
-				require.NoError(t, os.WriteFile(basePath, []byte("invalid: yaml: content\n"), 0644))
+			name: "invalid yaml in base config file",
+			setupFiles: func(t *testing.T, configDir string) string {
+				configFile := filepath.Join(configDir, "config.yaml")
+				require.NoError(t, os.WriteFile(configFile, []byte("invalid: yaml: content: [\n"), 0644))
+				return configFile
 			},
 			wantErr: true,
 		},
@@ -80,13 +143,21 @@ func TestLoadPruningFromDropins(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			tt.setupFiles(t, tmpDir)
+			configDir := filepath.Join(tmpDir, "etc", "flightctl")
+			dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+
+			// Create necessary directories
+			require.NoError(t, os.MkdirAll(configDir, 0755))
+			require.NoError(t, os.MkdirAll(dataDir, 0755))
 
 			cfg := NewDefault()
-			cfg.ConfigDir = tmpDir
+			cfg.ConfigDir = configDir
+			cfg.DataDir = dataDir
 			cfg.readWriter = fileio.NewReadWriter()
 
-			err := cfg.loadPruningFromDropins()
+			configFile := tt.setupFiles(t, configDir)
+
+			err := cfg.LoadWithOverrides(configFile)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -97,7 +168,7 @@ func TestLoadPruningFromDropins(t *testing.T) {
 	}
 }
 
-func TestLoadWithOverridesIncludesPruningDropins(t *testing.T) {
+func TestLoadWithOverridesIncludesPruningFromConfD(t *testing.T) {
 	tmpDir := t.TempDir()
 	configDir := filepath.Join(tmpDir, "etc", "flightctl")
 	dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
@@ -111,17 +182,30 @@ func TestLoadWithOverridesIncludesPruningDropins(t *testing.T) {
 	cfg.DataDir = dataDir
 	cfg.readWriter = fileio.NewReadWriter()
 
-	// Set pruning to false in config
-	cfg.Pruning.Enabled = false
+	// Create base config file with pruning disabled
+	configFile := filepath.Join(configDir, "config.yaml")
+	content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+spec-fetch-interval: 0m10s
+status-update-interval: 0m10s
+pruning:
+  enabled: false
+`
+	require.NoError(t, os.WriteFile(configFile, []byte(content), 0644))
 
-	// Create pruning dropin that enables pruning (should override config)
-	dropinDir := filepath.Join(configDir, "pruning.d")
+	// Create dropin in conf.d that enables pruning (should override config)
+	dropinDir := filepath.Join(configDir, "conf.d")
 	require.NoError(t, os.MkdirAll(dropinDir, 0755))
 	dropinPath := filepath.Join(dropinDir, "enable.yaml")
-	require.NoError(t, os.WriteFile(dropinPath, []byte("enabled: true\n"), 0644))
+	require.NoError(t, os.WriteFile(dropinPath, []byte("pruning:\n  enabled: true\n"), 0644))
 
-	// Load dropins
-	err := cfg.loadPruningFromDropins()
+	// Load config with overrides
+	err := cfg.LoadWithOverrides(configFile)
 	require.NoError(t, err)
 	// Dropin should override config, so pruning should be enabled
 	require.True(t, cfg.Pruning.Enabled, "pruning dropin should override config setting")

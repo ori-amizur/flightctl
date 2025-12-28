@@ -401,6 +401,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	reloadManager.Register(systemInfoManager.ReloadConfig)
 	reloadManager.Register(statusManager.ReloadCollect)
 	reloadManager.Register(certManager.Sync)
+	reloadManager.Register(pruningManager.ReloadConfig)
 
 	// agent is serial by default. only a small number of operations run async.
 	// device reconciliation, status updates, and spec application happen serially.

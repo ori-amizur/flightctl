@@ -13,6 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
+	v1beta1 "github.com/flightctl/flightctl/api/v1beta1"
+	config "github.com/flightctl/flightctl/internal/agent/config"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -53,16 +55,44 @@ func (mr *MockManagerMockRecorder) Prune(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Prune", reflect.TypeOf((*MockManager)(nil).Prune), ctx)
 }
 
-// RecordReferences mocks base method.
-func (m *MockManager) RecordReferences(ctx context.Context) error {
+// PrunePending mocks base method.
+func (m *MockManager) PrunePending() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RecordReferences", ctx)
+	ret := m.ctrl.Call(m, "PrunePending")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// PrunePending indicates an expected call of PrunePending.
+func (mr *MockManagerMockRecorder) PrunePending() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrunePending", reflect.TypeOf((*MockManager)(nil).PrunePending))
+}
+
+// RecordReferences mocks base method.
+func (m *MockManager) RecordReferences(ctx context.Context, current, desired *v1beta1.Device) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordReferences", ctx, current, desired)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RecordReferences indicates an expected call of RecordReferences.
-func (mr *MockManagerMockRecorder) RecordReferences(ctx any) *gomock.Call {
+func (mr *MockManagerMockRecorder) RecordReferences(ctx, current, desired any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordReferences", reflect.TypeOf((*MockManager)(nil).RecordReferences), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordReferences", reflect.TypeOf((*MockManager)(nil).RecordReferences), ctx, current, desired)
+}
+
+// ReloadConfig mocks base method.
+func (m *MockManager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReloadConfig", ctx, cfg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReloadConfig indicates an expected call of ReloadConfig.
+func (mr *MockManagerMockRecorder) ReloadConfig(ctx, cfg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReloadConfig", reflect.TypeOf((*MockManager)(nil).ReloadConfig), ctx, cfg)
 }

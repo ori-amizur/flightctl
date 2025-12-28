@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/flightctl/flightctl/api/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -34,7 +36,14 @@ type Manager interface {
 	// RecordReferences records all image and artifact references from current and desired specs to a file.
 	// This ensures the references file exists and is kept up to date even when pruning is disabled,
 	// so that when pruning is later enabled, it has accurate historical data to work with.
-	RecordReferences(ctx context.Context) error
+	// current and desired are the device specs to extract references from.
+	RecordReferences(ctx context.Context, current, desired *v1beta1.Device) error
+	// ReloadConfig reloads the pruning configuration from the agent config.
+	// This is called when the agent receives a SIGHUP signal to reload configuration.
+	ReloadConfig(ctx context.Context, cfg *config.Config) error
+
+	// PrunePending indicates whether a prune operation is pending due to config change.
+	PrunePending() bool
 }
 
 // PruningConfig holds configuration for pruning operations.
@@ -51,6 +60,7 @@ type manager struct {
 	config         PruningConfig
 	ociTargetCache *provider.OCITargetCache
 	dataDir        string
+	prunePending   atomic.Bool
 }
 
 // NewManager creates a new pruning manager instance.
@@ -83,6 +93,7 @@ func NewManager(
 // Prune removes unused container images and OCI artifacts after successful spec reconciliation.
 // It preserves images required for current and desired operations.
 func (m *manager) Prune(ctx context.Context) error {
+	m.prunePending.Store(false)
 	if !m.config.Enabled {
 		m.log.Debug("Pruning is disabled, skipping")
 		return nil
@@ -100,33 +111,33 @@ func (m *manager) Prune(ctx context.Context) error {
 	}
 
 	totalEligible := len(eligible.Images) + len(eligible.Artifacts)
-	if totalEligible == 0 {
-		m.log.Debug("No images or artifacts eligible for pruning")
-		// Still record current references even if nothing to prune
-		// This ensures the file is created on first run and updated on subsequent runs
-		if err := m.recordImageArtifactReferences(ctx); err != nil {
-			m.log.Warnf("Failed to record image/artifact references: %v", err)
-			// Don't block reconciliation on recording errors
+	
+	var removedImages int
+	var removedImageRefs []string
+	var removedArtifacts int
+	var removedArtifactRefs []string
+
+	if totalEligible > 0 {
+		m.log.Infof("Starting pruning of %d eligible images and %d eligible artifacts", len(eligible.Images), len(eligible.Artifacts))
+
+		// Remove eligible images and artifacts separately, tracking which ones were successfully removed
+		var err error
+		removedImages, removedImageRefs, err = m.removeEligibleImages(ctx, eligible.Images)
+		if err != nil {
+			m.log.Warnf("Error during image removal: %v", err)
+			// Continue with artifact removal even if image removal failed
 		}
-		return nil
+
+		removedArtifacts, removedArtifactRefs, err = m.removeEligibleArtifacts(ctx, eligible.Artifacts)
+		if err != nil {
+			m.log.Warnf("Error during artifact removal: %v", err)
+			// Continue with validation even if some removals failed
+		}
+
+		m.log.Infof("Pruning complete: removed %d of %d eligible images, %d of %d eligible artifacts", removedImages, len(eligible.Images), removedArtifacts, len(eligible.Artifacts))
+	} else {
+		m.log.Debug("No images or artifacts eligible for pruning")
 	}
-
-	m.log.Infof("Starting pruning of %d eligible images and %d eligible artifacts", len(eligible.Images), len(eligible.Artifacts))
-
-	// Remove eligible images and artifacts separately, tracking which ones were successfully removed
-	removedImages, removedImageRefs, err := m.removeEligibleImages(ctx, eligible.Images)
-	if err != nil {
-		m.log.Warnf("Error during image removal: %v", err)
-		// Continue with artifact removal even if image removal failed
-	}
-
-	removedArtifacts, removedArtifactRefs, err := m.removeEligibleArtifacts(ctx, eligible.Artifacts)
-	if err != nil {
-		m.log.Warnf("Error during artifact removal: %v", err)
-		// Continue with validation even if some removals failed
-	}
-
-	m.log.Infof("Pruning complete: removed %d of %d eligible images, %d of %d eligible artifacts", removedImages, len(eligible.Images), removedArtifacts, len(eligible.Artifacts))
 
 	// Remove successfully pruned items from the references file
 	// This ensures the accumulated file only contains items that still exist or haven't been pruned yet
@@ -143,13 +154,6 @@ func (m *manager) Prune(ctx context.Context) error {
 		// Log warning but don't block reconciliation
 	}
 
-	// Record all image and artifact references to file
-	// This accumulates new references from current specs for the next pruning cycle
-	if err := m.recordImageArtifactReferences(ctx); err != nil {
-		m.log.Warnf("Failed to record image/artifact references: %v", err)
-		// Don't block reconciliation on recording errors
-	}
-
 	return nil
 }
 
@@ -157,8 +161,8 @@ func (m *manager) Prune(ctx context.Context) error {
 // This ensures the references file exists and is kept up to date even when pruning is disabled,
 // so that when pruning is later enabled, it has accurate historical data to work with.
 // This is called on every successful sync, regardless of pruning enabled status.
-func (m *manager) RecordReferences(ctx context.Context) error {
-	if err := m.recordImageArtifactReferences(ctx); err != nil {
+func (m *manager) RecordReferences(ctx context.Context, current, desired *v1beta1.Device) error {
+	if err := m.recordImageArtifactReferences(ctx, current, desired); err != nil {
 		m.log.Warnf("Failed to record image/artifact references: %v", err)
 		return err
 	}
@@ -166,62 +170,69 @@ func (m *manager) RecordReferences(ctx context.Context) error {
 	return nil
 }
 
-// getImageReferencesFromSpecs extracts image references from current and desired device specs.
-// It includes both explicit references and nested targets extracted from image-based applications.
-// It uses the spec manager's Read() method to read specs and returns a combined unique list.
-func (m *manager) getImageReferencesFromSpecs(ctx context.Context) ([]string, error) {
-	var images []string
-
-	// Process both Current and Desired specs
-	specs := []struct {
-		specType spec.Type
-		name     string
-		required bool // Current is required, Desired is optional
-	}{
-		{spec.Current, "current", true},
-		{spec.Desired, "desired", false},
+// ReloadConfig reloads the pruning configuration from the agent config.
+// This is called when the agent receives a SIGHUP signal to reload configuration.
+func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
-	for _, s := range specs {
-		device, err := m.specManager.Read(s.specType)
-		if err != nil {
-			if s.required {
-				return nil, fmt.Errorf("reading %s spec: %w", s.name, err)
-			}
-			// Desired spec may not exist - this is acceptable
-			m.log.Debugf("%s spec not available: %v", s.name, err)
-			continue
-		}
+	prev := m.config.Enabled
+	m.config = cfg.Pruning
 
-		if device == nil {
-			continue
-		}
+	// Update the config with the new values
+	if cfg.Pruning.Enabled && !prev {
+		m.prunePending.Store(true)
+	}
 
-		// Extract explicit image references
-		explicitImages, err := m.extractImageReferences(ctx, device)
-		if err != nil {
-			return nil, fmt.Errorf("extracting images from %s spec: %w", s.name, err)
-		}
-		images = append(images, explicitImages...)
+	m.log.Infof("Pruning config reloaded: enabled=%v", m.config.Enabled)
+	return nil
+}
 
-		// Extract nested targets from image-based applications
-		nestedImages, err := m.extractNestedTargetsFromSpec(ctx, device)
-		if err != nil {
-			// Log warning but don't fail - nested extraction is best-effort
-			m.log.Warnf("Failed to extract nested targets from %s spec: %v", s.name, err)
-		} else {
-			images = append(images, nestedImages...)
-		}
+func (m *manager) PrunePending() bool {
+	return m.prunePending.Load()
+}
+
+// getImageReferencesFromSpecs extracts image references from a device spec.
+// It includes both explicit references and nested targets extracted from image-based applications.
+func (m *manager) getImageReferencesFromSpecs(ctx context.Context, device *v1beta1.Device) ([]string, error) {
+	if device == nil || device.Spec == nil {
+		return nil, nil
+	}
+
+	var images []string
+
+	// Extract image/artifact references directly from the spec
+	// This mirrors the logic in CollectBaseOCITargets but only extracts reference strings
+	specRefs, err := m.extractReferencesFromSpec(ctx, device.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("extracting references from spec: %w", err)
+	}
+	images = append(images, specRefs...)
+
+	// Extract OS image (not included in extractReferencesFromSpec)
+	if device.Spec.Os != nil && device.Spec.Os.Image != "" {
+		images = append(images, device.Spec.Os.Image)
+	}
+
+	// Extract nested targets from image-based applications
+	nestedImages, err := m.extractNestedTargetsFromSpec(ctx, device)
+	if err != nil {
+		// Log warning but don't fail - nested extraction is best-effort
+		m.log.Warnf("Failed to extract nested targets from spec: %v", err)
+	} else {
+		images = append(images, nestedImages...)
 	}
 
 	return lo.Uniq(images), nil
 }
 
 // ImageArtifactReferences holds all image and artifact references from specs.
+// References are stored without categorization during recording.
+// Categorization happens during pruning when we can check if they exist as images or artifacts.
 type ImageArtifactReferences struct {
-	Timestamp string   `json:"timestamp"`
-	Images    []string `json:"images"`
-	Artifacts []string `json:"artifacts"`
+	Timestamp  string   `json:"timestamp"`
+	References []string `json:"references"` // Single list of all references (no categorization)
 }
 
 // categorizeReference checks if a reference exists as an image or artifact and returns the category.
@@ -260,60 +271,50 @@ func (m *manager) readPreviousReferences() *ImageArtifactReferences {
 // recordImageArtifactReferences records all image and artifact references from current and desired specs to a file.
 // It accumulates references: reads existing file (if any), adds new references from current specs, and writes back.
 // References are only removed when they are successfully pruned (see removePrunedReferencesFromFile).
-func (m *manager) recordImageArtifactReferences(ctx context.Context) error {
+// current and desired are the device specs to extract references from.
+func (m *manager) recordImageArtifactReferences(ctx context.Context, current, desired *v1beta1.Device) error {
 	// Read existing references file (if it exists) to accumulate with new references
-	existingRefs := m.readPreviousReferences()
-	
-	// Build sets from existing references for efficient lookup
-	existingImagesSet := make(map[string]struct{})
-	existingArtifactsSet := make(map[string]struct{})
-	if existingRefs != nil {
-		for _, img := range existingRefs.Images {
-			existingImagesSet[img] = struct{}{}
-		}
-		for _, artifact := range existingRefs.Artifacts {
-			existingArtifactsSet[artifact] = struct{}{}
-		}
+	existingRefs := lo.FromPtr(m.readPreviousReferences())
+
+	// Start with existing references
+	existingReferences := existingRefs.References
+
+	// Extract all image references from the provided specs using getImageReferencesFromSpecs
+	// This ensures we collect exactly the same references that the prefetch manager sees
+	// We do NOT categorize here - categorization happens during pruning when we can check existence
+	var allRefs []string
+
+	// Process both current and desired specs in a loop
+	specs := []struct {
+		device *v1beta1.Device
+		name   string
+	}{
+		{current, "current"},
+		{desired, "desired"},
 	}
 
-	// Get all image references from specs using the shared function
-	allRefs, err := m.getImageReferencesFromSpecs(ctx)
-	if err != nil {
-		// Log warning but continue - we still want to record what we can
-		// This is more lenient than getImageReferencesFromSpecs which requires Current spec
-		m.log.Warnf("Failed to get image references from specs for recording: %v", err)
-		allRefs = []string{} // Continue with empty list
-	}
+	for _, s := range specs {
+		if s.device == nil {
+			continue
+		}
 
-	// Categorize and accumulate new references
-	for _, ref := range allRefs {
-		category := m.categorizeReference(ctx, ref)
-		switch category {
-		case "image":
-			if _, exists := existingImagesSet[ref]; !exists {
-				existingImagesSet[ref] = struct{}{}
-			}
-		case "artifact":
-			if _, exists := existingArtifactsSet[ref]; !exists {
-				existingArtifactsSet[ref] = struct{}{}
-			}
-		default:
-			// For unknown references, add to both lists since we can't determine
-			// They might be pulled later or might not exist locally yet
-			if _, exists := existingImagesSet[ref]; !exists {
-				existingImagesSet[ref] = struct{}{}
-			}
-			if _, exists := existingArtifactsSet[ref]; !exists {
-				existingArtifactsSet[ref] = struct{}{}
-			}
+		specRefs, err := m.getImageReferencesFromSpecs(ctx, s.device)
+		if err != nil {
+			m.log.Warnf("Failed to get image references from %s spec for recording: %v", s.name, err)
+		} else {
+			allRefs = append(allRefs, specRefs...)
 		}
 	}
 
-	// Build final accumulated references
+	allRefs = lo.Uniq(allRefs)
+
+	// Accumulate all references without categorization
+	existingReferences = append(existingReferences, allRefs...)
+
+	// Build final accumulated references (single list, no categorization)
 	refs := ImageArtifactReferences{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Images:    lo.Keys(existingImagesSet),
-		Artifacts: lo.Keys(existingArtifactsSet),
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		References: lo.Uniq(existingReferences),
 	}
 
 	// Marshal to JSON
@@ -328,14 +329,15 @@ func (m *manager) recordImageArtifactReferences(ctx context.Context) error {
 		return fmt.Errorf("writing image/artifact references to file: %w", err)
 	}
 
-	m.log.Debugf("Recorded image/artifact references to %s (accumulated: %d images, %d artifacts)", filePath, len(refs.Images), len(refs.Artifacts))
+	m.log.Debugf("Recorded image/artifact references to %s (accumulated: %d references)", filePath, len(refs.References))
 	return nil
 }
 
 // removePrunedReferencesFromFile removes successfully pruned images and artifacts from the references file.
 // This ensures the accumulated file only contains items that still exist or haven't been pruned yet.
 func (m *manager) removePrunedReferencesFromFile(removedImages []string, removedArtifacts []string) error {
-	if len(removedImages) == 0 && len(removedArtifacts) == 0 {
+	allRemoved := append(removedImages, removedArtifacts...)
+	if len(allRemoved) == 0 {
 		return nil // Nothing to remove
 	}
 
@@ -346,36 +348,13 @@ func (m *manager) removePrunedReferencesFromFile(removedImages []string, removed
 		return nil
 	}
 
-	// Build sets of removed items for efficient lookup
-	removedImagesSet := make(map[string]struct{})
-	for _, img := range removedImages {
-		removedImagesSet[img] = struct{}{}
-	}
-	removedArtifactsSet := make(map[string]struct{})
-	for _, artifact := range removedArtifacts {
-		removedArtifactsSet[artifact] = struct{}{}
-	}
-
-	// Filter out removed items
-	var filteredImages []string
-	for _, img := range existingRefs.Images {
-		if _, removed := removedImagesSet[img]; !removed {
-			filteredImages = append(filteredImages, img)
-		}
-	}
-
-	var filteredArtifacts []string
-	for _, artifact := range existingRefs.Artifacts {
-		if _, removed := removedArtifactsSet[artifact]; !removed {
-			filteredArtifacts = append(filteredArtifacts, artifact)
-		}
-	}
+	// Filter out removed items from the single References list
+	filteredReferences := lo.Without(lo.Uniq(existingRefs.References), lo.Uniq(allRemoved)...)
 
 	// Build updated references
 	refs := ImageArtifactReferences{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Images:    filteredImages,
-		Artifacts: filteredArtifacts,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		References: filteredReferences,
 	}
 
 	// Marshal to JSON
@@ -389,8 +368,7 @@ func (m *manager) removePrunedReferencesFromFile(removedImages []string, removed
 	if err := m.readWriter.WriteFile(filePath, jsonData, fileio.DefaultFilePermissions); err != nil {
 		return fmt.Errorf("writing updated image/artifact references to file: %w", err)
 	}
-
-	m.log.Debugf("Removed %d images and %d artifacts from references file (remaining: %d images, %d artifacts)", len(removedImages), len(removedArtifacts), len(filteredImages), len(filteredArtifacts))
+	m.log.Debugf("Removed %d references from references file (remaining: %d references)", len(allRemoved), len(filteredReferences))
 	return nil
 }
 
@@ -419,40 +397,77 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 		}, nil
 	}
 
-	// Get all images and artifacts from Podman first (needed for categorization)
-	allImages, err := m.podmanClient.ListImages(ctx)
-	if err != nil {
-		m.log.Warnf("Failed to list container images: %v", err)
-		// Continue with partial results
-		allImages = []string{}
-	}
-
-	allArtifacts, err := m.podmanClient.ListArtifacts(ctx)
-	if err != nil {
-		m.log.Warnf("Failed to list OCI artifacts: %v", err)
-		// Continue with partial results
-		allArtifacts = []string{}
-	}
-
-	allImages = lo.Uniq(allImages)
-	allArtifacts = lo.Uniq(allArtifacts)
-
 	// Get current required references from specs (includes application images, OS images, and artifacts)
-	currentRequiredRefs, err := m.getImageReferencesFromSpecs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting image references from specs: %w", err)
+	// Note: We don't need to list all images/artifacts upfront anymore.
+	// Categorization happens per-reference during pruning when we check existence.
+	var currentRequiredRefs []string
+
+	// Process both current and desired specs in a loop
+	specTypes := []struct {
+		specType spec.Type
+		name     string
+		required bool
+	}{
+		{spec.Current, "current", true},
+		{spec.Desired, "desired", false},
+	}
+
+	for _, st := range specTypes {
+		device, err := m.specManager.Read(st.specType)
+		if err != nil {
+			if st.required {
+				return nil, fmt.Errorf("reading %s spec: %w", st.name, err)
+			}
+			// Desired spec may not exist - this is acceptable
+			m.log.Debugf("%s spec not available: %v", st.name, err)
+			continue
+		}
+
+		if device == nil {
+			continue
+		}
+
+		specRefs, err := m.getImageReferencesFromSpecs(ctx, device)
+		if err != nil {
+			if st.required {
+				return nil, fmt.Errorf("getting image references from %s spec: %w", st.name, err)
+			}
+			// Log warning but don't fail - desired spec extraction is best-effort
+			m.log.Warnf("Failed to get image references from %s spec: %v", st.name, err)
+			continue
+		}
+
+		currentRequiredRefs = append(currentRequiredRefs, specRefs...)
 	}
 
 	currentRequiredRefs = lo.Uniq(currentRequiredRefs)
 
-	currentImages := lo.Intersect(allImages, currentRequiredRefs)
-	currentArtifacts := lo.Intersect(allArtifacts, currentRequiredRefs)
-	remaining := lo.Without(currentRequiredRefs, lo.Union(currentImages, currentArtifacts)...)
-	currentImages = append(currentImages, remaining...)
-	currentArtifacts = append(currentArtifacts, remaining...)
+	// Get previous references (single list, no categorization)
+	previousReferences := previousRefs.References
 
-	eligibleImages := lo.Without(lo.Uniq(previousRefs.Images), currentImages...)
-	eligibleArtifacts := lo.Without(lo.Uniq(previousRefs.Artifacts), currentArtifacts...)
+	// Find references that were previously recorded but are no longer in current specs
+	eligibleReferences := lo.Without(lo.Uniq(previousReferences), currentRequiredRefs...)
+
+	// Categorize eligible references during pruning (when we can check existence)
+	// Only include references that we successfully categorize
+	var eligibleImages []string
+	var eligibleArtifacts []string
+
+	for _, ref := range eligibleReferences {
+		// Check if it exists as an image
+		if m.podmanClient.ImageExists(ctx, ref) {
+			eligibleImages = append(eligibleImages, ref)
+			continue
+		}
+		// Check if it exists as an artifact
+		if m.podmanClient.ArtifactExists(ctx, ref) {
+			eligibleArtifacts = append(eligibleArtifacts, ref)
+			continue
+		}
+		// If it doesn't exist as either, skip it (can't prune what doesn't exist)
+		// We don't remove it from the references file as it might be currently being downloaded
+		m.log.Debugf("Skipping reference %s - doesn't exist as image or artifact (might be downloading)", ref)
+	}
 
 	if len(eligibleImages) == 0 && len(eligibleArtifacts) == 0 {
 		m.log.Debug("No previously referenced items have lost their references - nothing to prune")
@@ -465,38 +480,41 @@ func (m *manager) determineEligibleImages(ctx context.Context) (*EligibleItems, 
 	}, nil
 }
 
-// extractImageReferences extracts all container image and OCI artifact references from a device spec.
-// It includes both application images and OS images.
-// It returns a unique list of image/artifact identifiers.
-func (m *manager) extractImageReferences(ctx context.Context, device *v1beta1.Device) ([]string, error) {
-	if device == nil || device.Spec == nil {
-		return []string{}, nil
+// extractReferencesFromSpec extracts all image and artifact reference strings from a device spec.
+// This mirrors the logic in CollectBaseOCITargets but only returns reference strings, not OCIPullTarget objects.
+func (m *manager) extractReferencesFromSpec(ctx context.Context, deviceSpec *v1beta1.DeviceSpec) ([]string, error) {
+	if deviceSpec == nil {
+		return nil, nil
 	}
 
-	var images []string
+	var refs []string
 
-	// Extract images from applications
-	if device.Spec.Applications != nil {
-		for _, appSpec := range lo.FromPtr(device.Spec.Applications) {
-			appImages, err := m.extractImagesFromApplication(ctx, &appSpec)
+	// Extract from applications
+	if deviceSpec.Applications != nil {
+		for _, appSpec := range lo.FromPtr(deviceSpec.Applications) {
+			appRefs, err := m.extractReferencesFromApplication(ctx, &appSpec)
 			if err != nil {
-				return nil, fmt.Errorf("extracting images from application %s: %w", lo.FromPtr(appSpec.Name), err)
+				return nil, fmt.Errorf("extracting references from application %s: %w", lo.FromPtr(appSpec.Name), err)
 			}
-			images = append(images, appImages...)
+			refs = append(refs, appRefs...)
 		}
 	}
 
-	// Extract OS image (if present)
-	if device.Spec.Os != nil && device.Spec.Os.Image != "" {
-		images = append(images, device.Spec.Os.Image)
+	// Extract from embedded applications
+	embeddedRefs, err := m.extractEmbeddedReferences(ctx)
+	if err != nil {
+		// Log warning but don't fail - embedded extraction is best-effort
+		m.log.Warnf("Failed to extract embedded application references: %v", err)
+	} else {
+		refs = append(refs, embeddedRefs...)
 	}
 
-	return lo.Uniq(images), nil
+	return lo.Uniq(refs), nil
 }
 
-// extractImagesFromApplication extracts image references from a single application spec.
-func (m *manager) extractImagesFromApplication(ctx context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]string, error) {
-	var images []string
+// extractReferencesFromApplication extracts image and artifact reference strings from a single application spec.
+func (m *manager) extractReferencesFromApplication(ctx context.Context, appSpec *v1beta1.ApplicationProviderSpec) ([]string, error) {
+	var refs []string
 
 	providerType, err := appSpec.Type()
 	if err != nil {
@@ -509,15 +527,15 @@ func (m *manager) extractImagesFromApplication(ctx context.Context, appSpec *v1b
 		if err != nil {
 			return nil, fmt.Errorf("getting image provider spec: %w", err)
 		}
-		images = append(images, imageSpec.Image)
+		refs = append(refs, imageSpec.Image)
 
-		// Extract volume images
+		// Extract volume references
 		if imageSpec.Volumes != nil {
-			volImages, err := m.extractVolumeImages(*imageSpec.Volumes)
+			volRefs, err := m.extractVolumeReferences(*imageSpec.Volumes)
 			if err != nil {
-				return nil, fmt.Errorf("extracting volume images: %w", err)
+				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
-			images = append(images, volImages...)
+			refs = append(refs, volRefs...)
 		}
 
 	case v1beta1.InlineApplicationProviderType:
@@ -526,44 +544,263 @@ func (m *manager) extractImagesFromApplication(ctx context.Context, appSpec *v1b
 			return nil, fmt.Errorf("getting inline provider spec: %w", err)
 		}
 
-		// Extract images from inline content based on app type
+		// Extract references from inline content based on app type
 		switch appSpec.AppType {
 		case v1beta1.AppTypeCompose:
-			composeImages, err := m.extractComposeImages(inlineSpec.Inline)
+			composeRefs, err := m.extractComposeReferences(inlineSpec.Inline)
 			if err != nil {
-				return nil, fmt.Errorf("extracting compose images: %w", err)
+				return nil, fmt.Errorf("extracting compose references: %w", err)
 			}
-			images = append(images, composeImages...)
+			refs = append(refs, composeRefs...)
 
 		case v1beta1.AppTypeQuadlet:
-			quadletImages, err := m.extractQuadletImages(inlineSpec.Inline)
+			quadletRefs, err := m.extractQuadletReferences(inlineSpec.Inline)
 			if err != nil {
-				return nil, fmt.Errorf("extracting quadlet images: %w", err)
+				return nil, fmt.Errorf("extracting quadlet references: %w", err)
 			}
-			images = append(images, quadletImages...)
-
-		case v1beta1.AppTypeContainer:
-			// Container type cannot use inline provider (validated by API)
-			return nil, fmt.Errorf("%w: container applications cannot use inline provider", errors.ErrUnsupportedAppType)
+			refs = append(refs, quadletRefs...)
 
 		default:
-			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appSpec.AppType)
+			return nil, fmt.Errorf("unsupported app type for inline provider: %s", appSpec.AppType)
 		}
 
-		// Extract volume images
+		// Extract volume references
 		if inlineSpec.Volumes != nil {
-			volImages, err := m.extractVolumeImages(*inlineSpec.Volumes)
+			volRefs, err := m.extractVolumeReferences(*inlineSpec.Volumes)
 			if err != nil {
-				return nil, fmt.Errorf("extracting volume images: %w", err)
+				return nil, fmt.Errorf("extracting volume references: %w", err)
 			}
-			images = append(images, volImages...)
+			refs = append(refs, volRefs...)
 		}
 
 	default:
 		return nil, fmt.Errorf("unsupported application provider type: %s", providerType)
 	}
 
-	return images, nil
+	return refs, nil
+}
+
+// extractComposeReferences extracts image reference strings from Compose inline content.
+func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent) ([]string, error) {
+	spec, err := client.ParseComposeFromSpec(contents)
+	if err != nil {
+		return nil, fmt.Errorf("parsing compose spec: %w", err)
+	}
+
+	var refs []string
+	for _, svc := range spec.Services {
+		if svc.Image != "" {
+			refs = append(refs, svc.Image)
+		}
+	}
+
+	return refs, nil
+}
+
+// extractQuadletReferences extracts image reference strings from Quadlet inline content.
+// Filters out quadlet file references (e.g., "base.image") - only includes actual OCI image references.
+func (m *manager) extractQuadletReferences(contents []v1beta1.ApplicationContent) ([]string, error) {
+	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	if err != nil {
+		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
+	}
+
+	var refs []string
+	for _, quad := range quadlets {
+		// Extract images from service/container quadlets (only if it's an OCI image, not a quadlet file reference)
+		if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+			refs = append(refs, *quad.Image)
+		}
+		// Extract images from volume quadlets (only if it's an OCI image, not a quadlet file reference)
+		if quad.Type == common.QuadletTypeVolume && quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+			refs = append(refs, *quad.Image)
+		}
+		// Extract mount images (only if they're OCI images, not quadlet file references)
+		for _, mountImage := range quad.MountImages {
+			if !quadlet.IsImageReference(mountImage) {
+				refs = append(refs, mountImage)
+			}
+		}
+	}
+
+	return refs, nil
+}
+
+// extractVolumeReferences extracts image/artifact reference strings from application volumes.
+func (m *manager) extractVolumeReferences(volumes []v1beta1.ApplicationVolume) ([]string, error) {
+	var refs []string
+
+	for _, vol := range volumes {
+		volType, err := vol.Type()
+		if err != nil {
+			return nil, fmt.Errorf("determining volume type: %w", err)
+		}
+
+		switch volType {
+		case v1beta1.ImageApplicationVolumeProviderType:
+			provider, err := vol.AsImageVolumeProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image volume provider spec: %w", err)
+			}
+			refs = append(refs, provider.Image.Reference)
+
+		case v1beta1.ImageMountApplicationVolumeProviderType:
+			provider, err := vol.AsImageMountVolumeProviderSpec()
+			if err != nil {
+				return nil, fmt.Errorf("getting image mount volume provider spec: %w", err)
+			}
+			refs = append(refs, provider.Image.Reference)
+
+		case v1beta1.MountApplicationVolumeProviderType:
+			// Mount volumes don't have images
+			continue
+
+		default:
+			// Skip unsupported volume types
+			continue
+		}
+	}
+
+	return refs, nil
+}
+
+// extractEmbeddedReferences extracts image reference strings from embedded applications in the filesystem.
+func (m *manager) extractEmbeddedReferences(ctx context.Context) ([]string, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var allRefs []string
+
+	// Extract from embedded compose applications
+	composeRefs, err := m.extractEmbeddedComposeReferences(ctx)
+	if err != nil {
+		m.log.Warnf("Failed to extract embedded compose references: %v", err)
+	} else {
+		allRefs = append(allRefs, composeRefs...)
+	}
+
+	// Extract from embedded quadlet applications
+	quadletRefs, err := m.extractEmbeddedQuadletReferences(ctx)
+	if err != nil {
+		m.log.Warnf("Failed to extract embedded quadlet references: %v", err)
+	} else {
+		allRefs = append(allRefs, quadletRefs...)
+	}
+
+	return lo.Uniq(allRefs), nil
+}
+
+// extractEmbeddedComposeReferences extracts image reference strings from embedded compose applications.
+func (m *manager) extractEmbeddedComposeReferences(ctx context.Context) ([]string, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var refs []string
+
+	elements, err := m.readWriter.ReadDir(lifecycle.EmbeddedComposeAppPath)
+	if err != nil {
+		// Directory doesn't exist or can't be read - this is expected if no embedded apps
+		return nil, nil
+	}
+
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		name := element.Name()
+		appPath := filepath.Join(lifecycle.EmbeddedComposeAppPath, name)
+
+		// Search for compose files
+		suffixPatterns := []string{"*.yml", "*.yaml"}
+		var composeFound bool
+		for _, pattern := range suffixPatterns {
+			files, err := filepath.Glob(m.readWriter.PathFor(filepath.Join(appPath, pattern)))
+			if err != nil {
+				continue
+			}
+			if len(files) > 0 {
+				composeFound = true
+				break
+			}
+		}
+
+		if !composeFound {
+			continue
+		}
+
+		// Parse compose spec to extract images
+		spec, err := client.ParseComposeSpecFromDir(m.readWriter, appPath)
+		if err != nil {
+			// Skip apps that can't be parsed
+			m.log.Debugf("Skipping embedded compose app %s: failed to parse: %v", name, err)
+			continue
+		}
+
+		// Extract images from services
+		for _, svc := range spec.Services {
+			if svc.Image != "" {
+				refs = append(refs, svc.Image)
+			}
+		}
+	}
+
+	return refs, nil
+}
+
+// extractEmbeddedQuadletReferences extracts image reference strings from embedded quadlet applications.
+func (m *manager) extractEmbeddedQuadletReferences(ctx context.Context) ([]string, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	var refs []string
+
+	elements, err := m.readWriter.ReadDir(lifecycle.EmbeddedQuadletAppPath)
+	if err != nil {
+		// Directory doesn't exist or can't be read - this is expected if no embedded apps
+		return nil, nil
+	}
+
+	for _, element := range elements {
+		if !element.IsDir() {
+			continue
+		}
+
+		name := element.Name()
+		appPath := filepath.Join(lifecycle.EmbeddedQuadletAppPath, name)
+
+		// Parse quadlet references from directory
+		quadletRefs, err := client.ParseQuadletReferencesFromDir(m.readWriter, appPath)
+		if err != nil {
+			// Skip apps that can't be parsed
+			m.log.Debugf("Skipping embedded quadlet app %s: failed to parse: %v", name, err)
+			continue
+		}
+
+		// Extract images from quadlet references
+		// Filter out quadlet file references (e.g., "base.image") - only include actual OCI image references
+		for _, quad := range quadletRefs {
+			// Extract images from service/container quadlets (only if it's an OCI image, not a quadlet file reference)
+			if quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+				refs = append(refs, *quad.Image)
+			}
+			// Extract images from volume quadlets (only if it's an OCI image, not a quadlet file reference)
+			if quad.Type == common.QuadletTypeVolume && quad.Image != nil && !quadlet.IsImageReference(*quad.Image) {
+				refs = append(refs, *quad.Image)
+			}
+			// Extract mount images (only if they're OCI images, not quadlet file references)
+			for _, mountImage := range quad.MountImages {
+				if !quadlet.IsImageReference(mountImage) {
+					refs = append(refs, mountImage)
+				}
+			}
+		}
+	}
+
+	return refs, nil
 }
 
 // extractNestedTargetsFromSpec extracts nested OCI targets (images and artifacts) from image-based applications.
@@ -586,82 +823,6 @@ func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1be
 		device.Spec,
 		nil, // pullSecret not needed for extraction from local images
 	)
-}
-
-// extractComposeImages extracts image references from Compose inline content.
-func (m *manager) extractComposeImages(contents []v1beta1.ApplicationContent) ([]string, error) {
-	spec, err := client.ParseComposeFromSpec(contents)
-	if err != nil {
-		return nil, fmt.Errorf("parsing compose spec: %w", err)
-	}
-
-	var images []string
-	for _, svc := range spec.Services {
-		if svc.Image != "" {
-			images = append(images, svc.Image)
-		}
-	}
-
-	return images, nil
-}
-
-// extractQuadletImages extracts image references from Quadlet inline content.
-func (m *manager) extractQuadletImages(contents []v1beta1.ApplicationContent) ([]string, error) {
-	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
-	if err != nil {
-		return nil, fmt.Errorf("parsing quadlet spec: %w", err)
-	}
-
-	var images []string
-	for _, quad := range quadlets {
-		// Extract images from service/container quadlets
-		if quad.Image != nil {
-			images = append(images, *quad.Image)
-		}
-		// Extract images from volume quadlets
-		if quad.Type == common.QuadletTypeVolume && quad.Image != nil {
-			images = append(images, *quad.Image)
-		}
-	}
-
-	return images, nil
-}
-
-// extractVolumeImages extracts image references from application volumes.
-func (m *manager) extractVolumeImages(volumes []v1beta1.ApplicationVolume) ([]string, error) {
-	var images []string
-
-	for _, vol := range volumes {
-		volType, err := vol.Type()
-		if err != nil {
-			return nil, fmt.Errorf("determining volume type: %w", err)
-		}
-
-		switch volType {
-		case v1beta1.ImageApplicationVolumeProviderType:
-			provider, err := vol.AsImageVolumeProviderSpec()
-			if err != nil {
-				return nil, fmt.Errorf("getting image volume provider spec: %w", err)
-			}
-			images = append(images, provider.Image.Reference)
-
-		case v1beta1.ImageMountApplicationVolumeProviderType:
-			provider, err := vol.AsImageMountVolumeProviderSpec()
-			if err != nil {
-				return nil, fmt.Errorf("getting image mount volume provider spec: %w", err)
-			}
-			images = append(images, provider.Image.Reference)
-
-		case v1beta1.MountApplicationVolumeProviderType:
-			// Mount volumes don't have images
-			continue
-
-		default:
-			return nil, fmt.Errorf("%w: %s", errors.ErrUnsupportedVolumeType, volType)
-		}
-	}
-
-	return images, nil
 }
 
 // validateCapability verifies that capability is maintained after pruning operations.
@@ -687,10 +848,14 @@ func (m *manager) validateCapability(ctx context.Context) error {
 
 	// Validate current application images
 	if currentDevice != nil && currentDevice.Spec != nil {
-		currentImages, err := m.extractImageReferences(ctx, currentDevice)
+		// Extract image/artifact references directly from the spec
+		var currentImages []string
+		specRefs, err := m.extractReferencesFromSpec(ctx, currentDevice.Spec)
 		if err != nil {
 			return fmt.Errorf("extracting current images for validation: %w", err)
 		}
+		currentImages = append(currentImages, specRefs...)
+		// Add OS image if present (will be validated separately below)
 		for _, img := range currentImages {
 			exists := m.podmanClient.ImageExists(ctx, img)
 			if !exists {
@@ -715,10 +880,13 @@ func (m *manager) validateCapability(ctx context.Context) error {
 
 	// Validate desired application images
 	if desiredDevice != nil && desiredDevice.Spec != nil {
-		desiredImages, err := m.extractImageReferences(ctx, desiredDevice)
+		// Extract image/artifact references directly from the spec
+		var desiredImages []string
+		specRefs, err := m.extractReferencesFromSpec(ctx, desiredDevice.Spec)
 		if err != nil {
 			return fmt.Errorf("extracting desired images for validation: %w", err)
 		}
+		desiredImages = append(desiredImages, specRefs...)
 		for _, img := range desiredImages {
 			exists := m.podmanClient.ImageExists(ctx, img)
 			if !exists {
@@ -760,20 +928,17 @@ func (m *manager) removeEligibleImages(ctx context.Context, eligibleImages []str
 	for _, imageRef := range eligibleImages {
 		// Check if image exists before attempting removal
 		imageExists := m.podmanClient.ImageExists(ctx, imageRef)
-		if !imageExists {
-			// Image doesn't exist - skip it (may have been removed already or never existed)
-			continue
-		}
 
-		err := m.podmanClient.RemoveImage(ctx, imageRef)
-		if err == nil {
+		if imageExists {
+			if err := m.podmanClient.RemoveImage(ctx, imageRef); err != nil {
+				m.log.Warnf("Failed to remove image %s: %v", imageRef, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove image %s: %w", imageRef, err))
+				continue
+			}
 			removedCount++
-			removedRefs = append(removedRefs, imageRef)
 			m.log.Debugf("Removed image: %s", imageRef)
-		} else {
-			m.log.Warnf("Failed to remove image %s: %v", imageRef, err)
-			removalErrors = append(removalErrors, fmt.Errorf("failed to remove image %s: %w", imageRef, err))
 		}
+		removedRefs = append(removedRefs, imageRef)
 	}
 
 	// Return error only if all removals failed
@@ -800,20 +965,17 @@ func (m *manager) removeEligibleArtifacts(ctx context.Context, eligibleArtifacts
 	for _, artifactRef := range eligibleArtifacts {
 		// Check if artifact exists before attempting removal
 		artifactExists := m.podmanClient.ArtifactExists(ctx, artifactRef)
-		if !artifactExists {
-			// Artifact doesn't exist - skip it (may have been removed already or never existed)
-			continue
-		}
 
-		err := m.podmanClient.RemoveArtifact(ctx, artifactRef)
-		if err == nil {
+		if artifactExists {
+			if err := m.podmanClient.RemoveArtifact(ctx, artifactRef); err != nil {
+				m.log.Warnf("Failed to remove artifact %s: %v", artifactRef, err)
+				removalErrors = append(removalErrors, fmt.Errorf("failed to remove artifact %s: %w", artifactRef, err))
+				continue
+			}
 			removedCount++
-			removedRefs = append(removedRefs, artifactRef)
 			m.log.Debugf("Removed artifact: %s", artifactRef)
-		} else {
-			m.log.Warnf("Failed to remove artifact %s: %v", artifactRef, err)
-			removalErrors = append(removalErrors, fmt.Errorf("failed to remove artifact %s: %w", artifactRef, err))
 		}
+		removedRefs = append(removedRefs, artifactRef)
 	}
 
 	// Return error only if all removals failed

@@ -393,66 +393,6 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 		return err
 	}
 
-	re := regexp.MustCompile(`^.*\.ya?ml$`)
-	for _, entry := range entries {
-		if entry.IsDir() || !re.MatchString(entry.Name()) {
-			continue
-		}
-		overrideCfg := &Config{}
-		overridePath := filepath.Join(confSubdir, entry.Name())
-		contents, err := cfg.readWriter.ReadFile(overridePath)
-		if err != nil {
-			return fmt.Errorf("reading override config %s: %w", overridePath, err)
-		}
-		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
-			return fmt.Errorf("unmarshalling override config %s: %w", overridePath, err)
-		}
-		mergeConfigs(cfg, overrideCfg)
-	}
-
-	// Load pruning config from file dropins (similar to cert dropins)
-	// This allows pruning config to be managed via ConfigProviderSpec
-	if err := cfg.loadPruningFromDropins(); err != nil {
-		return fmt.Errorf("loading pruning config from dropins: %w", err)
-	}
-
-	if err := cfg.Complete(); err != nil {
-		return err
-	}
-	return cfg.Validate()
-}
-
-// loadPruningFromDropins loads pruning configuration from a base file and drop-in directory.
-// Base file: /etc/flightctl/pruning.yaml (optional)
-// Drop-ins: /etc/flightctl/pruning.d/*.yaml (optional, applied in lexical order)
-// Drop-ins override the base file, and later drop-ins override earlier ones.
-// The pruning config can be managed via ConfigProviderSpec in the device spec.
-func (cfg *Config) loadPruningFromDropins() error {
-	basePath := filepath.Join(cfg.ConfigDir, "pruning.yaml")
-	dropinDir := filepath.Join(cfg.ConfigDir, "pruning.d")
-
-	// Read base file (optional)
-	if data, err := cfg.readWriter.ReadFile(basePath); err == nil {
-		var pruningCfg Pruning
-		if err := yaml.Unmarshal(data, &pruningCfg); err != nil {
-			return fmt.Errorf("parsing base pruning config %s: %w", basePath, err)
-		}
-		// Apply base config
-		cfg.Pruning.Enabled = pruningCfg.Enabled
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("reading base pruning config %s: %w", basePath, err)
-	}
-
-	// Read drop-ins (optional)
-	entries, err := cfg.readWriter.ReadDir(dropinDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No drop-in directory, that's fine
-			return nil
-		}
-		return fmt.Errorf("reading drop-in directory %s: %w", dropinDir, err)
-	}
-
 	// Sort entries lexically to ensure deterministic order
 	var yamlFiles []string
 	re := regexp.MustCompile(`^.*\.ya?ml$`)
@@ -466,22 +406,22 @@ func (cfg *Config) loadPruningFromDropins() error {
 
 	// Apply drop-ins in order (later files override earlier ones)
 	for _, filename := range yamlFiles {
-		dropinPath := filepath.Join(dropinDir, filename)
-		data, err := cfg.readWriter.ReadFile(dropinPath)
+		overrideCfg := &Config{}
+		overridePath := filepath.Join(confSubdir, filename)
+		contents, err := cfg.readWriter.ReadFile(overridePath)
 		if err != nil {
-			return fmt.Errorf("reading drop-in %s: %w", dropinPath, err)
+			return fmt.Errorf("reading override config %s: %w", overridePath, err)
 		}
-
-		var pruningCfg Pruning
-		if err := yaml.Unmarshal(data, &pruningCfg); err != nil {
-			return fmt.Errorf("parsing drop-in %s: %w", dropinPath, err)
+		if err := yaml.Unmarshal(contents, overrideCfg); err != nil {
+			return fmt.Errorf("unmarshalling override config %s: %w", overridePath, err)
 		}
-
-		// Apply drop-in config (overrides base and previous drop-ins)
-		cfg.Pruning.Enabled = pruningCfg.Enabled
+		mergeConfigs(cfg, overrideCfg)
 	}
 
-	return nil
+	if err := cfg.Complete(); err != nil {
+		return err
+	}
+	return cfg.Validate()
 }
 
 func mergeConfigs(base, override *Config) {
@@ -508,7 +448,11 @@ func mergeConfigs(base, override *Config) {
 	overrideIfNotEmpty(&base.ProfilingEnabled, override.ProfilingEnabled)
 
 	// pruning
-	overrideIfNotEmpty(&base.Pruning.Enabled, override.Pruning.Enabled)
+	// Always override pruning config from dropins when present.
+	// Since dropins are meant to override base config, we always apply the value.
+	// Note: This means a dropin without a pruning section won't change the base value,
+	// but a dropin with pruning.enabled: false will override to false.
+	base.Pruning.Enabled = override.Pruning.Enabled
 
 	for k, v := range override.DefaultLabels {
 		base.DefaultLabels[k] = v
