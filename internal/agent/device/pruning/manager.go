@@ -53,14 +53,13 @@ type PruningConfig = config.Pruning
 
 // manager implements the Manager interface for image pruning operations.
 type manager struct {
-	podmanClient   *client.Podman
-	specManager    spec.Manager
-	readWriter     fileio.ReadWriter
-	log            *log.PrefixLogger
-	config         PruningConfig
-	ociTargetCache *provider.OCITargetCache
-	dataDir        string
-	prunePending   atomic.Bool
+	podmanClient *client.Podman
+	specManager  spec.Manager
+	readWriter   fileio.ReadWriter
+	log          *log.PrefixLogger
+	config       PruningConfig
+	dataDir      string
+	prunePending atomic.Bool
 }
 
 // NewManager creates a new pruning manager instance.
@@ -806,23 +805,83 @@ func (m *manager) extractEmbeddedQuadletReferences(ctx context.Context) ([]strin
 // extractNestedTargetsFromSpec extracts nested OCI targets (images and artifacts) from image-based applications.
 // This ensures that artifacts referenced inside images (e.g., in Compose files) are preserved during pruning.
 // Returns a list of image/artifact references found in nested targets.
-// It uses the OCITargetCache which handles extraction and caching logic.
+// Errors during extraction are logged but don't block collection (best-effort for pruning).
 func (m *manager) extractNestedTargetsFromSpec(ctx context.Context, device *v1beta1.Device) ([]string, error) {
-	if device == nil || device.Spec == nil {
+	if device == nil || device.Spec == nil || device.Spec.Applications == nil {
 		return []string{}, nil
 	}
 
-	// Use the cache's method to collect nested target references
-	// Pass nil for pullSecret since we're only extracting from already-pulled images
-	// Errors during extraction are logged but don't block collection (best-effort for pruning)
-	return m.ociTargetCache.CollectNestedTargetReferencesFromSpec(
-		ctx,
-		m.log,
-		m.podmanClient,
-		m.readWriter,
-		device.Spec,
-		nil, // pullSecret not needed for extraction from local images
-	)
+	var allReferences []string
+	appDataToCleanup := []*provider.AppData{}
+
+	// Process each application in the spec
+	for _, appSpec := range lo.FromPtr(device.Spec.Applications) {
+		// Only image-based apps have nested targets extracted from parent images
+		providerType, err := appSpec.Type()
+		if err != nil {
+			m.log.Debugf("Skipping app %s: failed to get provider type: %v", lo.FromPtr(appSpec.Name), err)
+			continue
+		}
+
+		if providerType != v1beta1.ImageApplicationProviderType {
+			continue
+		}
+
+		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
+		if err != nil {
+			m.log.Debugf("Skipping app %s: failed to get image spec: %v", lo.FromPtr(appSpec.Name), err)
+			continue
+		}
+
+		imageRef := imageSpec.Image
+
+		// Check if the image/artifact exists locally (required for extraction)
+		exists := m.podmanClient.ImageExists(ctx, imageRef) || m.podmanClient.ArtifactExists(ctx, imageRef)
+		if !exists {
+			// Image not available locally - skip nested extraction (best-effort for pruning)
+			m.log.Debugf("Skipping nested extraction for app %s: image %s not available locally", lo.FromPtr(appSpec.Name), imageRef)
+			continue
+		}
+
+		// Extract nested targets from the image
+		// Pass nil for pullSecret since we're only extracting from already-pulled images
+		appData, err := provider.ExtractNestedTargetsFromImage(
+			ctx,
+			m.log,
+			m.podmanClient,
+			m.readWriter,
+			&appSpec,
+			&imageSpec,
+			nil, // pullSecret not needed for extraction from local images
+		)
+		if err != nil {
+			// Log warning but continue - nested extraction is best-effort for pruning
+			m.log.Debugf("Failed to extract nested targets from app %s (image %s): %v", lo.FromPtr(appSpec.Name), imageRef, err)
+			continue
+		}
+
+		// Collect reference strings from extracted targets
+		for _, target := range appData.Targets {
+			if target.Reference != "" {
+				allReferences = append(allReferences, target.Reference)
+			}
+		}
+
+		// Track AppData for cleanup
+		if appData != nil {
+			appDataToCleanup = append(appDataToCleanup, appData)
+		}
+	}
+
+	// Clean up extracted AppData (temporary files, etc.)
+	for _, appData := range appDataToCleanup {
+		if err := appData.Cleanup(); err != nil {
+			m.log.Debugf("Failed to cleanup AppData: %v", err)
+		}
+	}
+
+	// Return unique references
+	return lo.Uniq(allReferences), nil
 }
 
 // validateCapability verifies that capability is maintained after pruning operations.

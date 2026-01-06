@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo"
 	"github.com/flightctl/flightctl/internal/agent/shutdown"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/samber/lo"
 )
 
 const (
@@ -233,30 +234,116 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 }
 
 // collectNestedTargets collects nested OCI targets with per-application caching.
-// It delegates to the OCITargetCache which handles the extraction and caching logic.
 func (m *manager) collectNestedTargets(
 	ctx context.Context,
 	desired *v1beta1.DeviceSpec,
 	secret *client.PullSecret,
 ) ([]dependency.OCIPullTarget, bool, []string, error) {
-	// Use the cache's method to collect nested targets
-	// The cache handles all the logic: checking existence, getting digest, cache lookup, extraction, and cache update
-	targets, appDataMap, needsRequeue, activeNames, err := m.ociTargetCache.CollectNestedTargetsFromSpec(
+	var allNestedTargets []dependency.OCIPullTarget
+	var activeAppNames []string
+	needsRequeue := false
+
+	for _, appSpec := range *desired.Applications {
+		appName := lo.FromPtr(appSpec.Name)
+		activeAppNames = append(activeAppNames, appName)
+
+		providerType, err := appSpec.Type()
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("getting provider type for app %s: %w", appName, err)
+		}
+
+		// only image-based apps have nested targets extracted from parent images
+		if providerType != v1beta1.ImageApplicationProviderType {
+			continue
+		}
+
+		imageSpec, err := appSpec.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("getting image spec for app %s: %w", appName, err)
+		}
+
+		imageRef := imageSpec.Image
+
+		// Detect if reference is an artifact or image and check if it exists locally
+		var digest string
+		var ociType dependency.OCIType
+		var exists bool
+
+		// Check if it's an image first (most common case)
+		if m.podmanClient.ImageExists(ctx, imageRef) {
+			ociType = dependency.OCITypeImage
+			exists = true
+			digest, err = m.podmanClient.ImageDigest(ctx, imageRef)
+			if err != nil {
+				return nil, false, nil, fmt.Errorf("getting image digest for %s: %w", imageRef, err)
+			}
+		} else if m.podmanClient.ArtifactExists(ctx, imageRef) {
+			ociType = dependency.OCITypeArtifact
+			exists = true
+			digest, err = m.podmanClient.ArtifactDigest(ctx, imageRef)
+			if err != nil {
+				return nil, false, nil, fmt.Errorf("getting artifact digest for %s: %w", imageRef, err)
+			}
+		}
+
+		if !exists {
+			m.log.Debugf("Reference %s for app %s not available yet, skipping nested extraction", imageRef, appName)
+			needsRequeue = true
+			continue
+		}
+
+		if cachedEntry, found := m.ociTargetCache.Get(appName); found {
+			if cachedEntry.Parent.Digest == digest {
+				// cache hit - parent digest matches
+				m.log.Debugf("Using cached nested targets for app %s (digest: %s)", appName, digest)
+				allNestedTargets = append(allNestedTargets, cachedEntry.Children...)
+				continue
+			}
+			m.log.Debugf("Cache invalidated for app %s - digest changed from %s to %s", appName, cachedEntry.Parent.Digest, digest)
+		}
+
+		// cache miss or invalid - extract nested targets for this image
+		appData, err := m.extractNestedTargetsForImage(ctx, appSpec, &imageSpec, secret)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("extracting nested targets for app %s: %w", appName, err)
+		}
+
+		// store app data for reuse during Verify
+		m.appDataCache[appName] = appData
+
+		// update nested targets cache
+		cacheEntry := provider.CacheEntry{
+			Name: appName,
+			Parent: dependency.OCIPullTarget{
+				Type:      ociType,
+				Reference: imageRef,
+				Digest:    digest,
+			},
+			Children: appData.Targets,
+		}
+		m.ociTargetCache.Set(cacheEntry)
+		m.log.Debugf("Cached %d nested targets for app %s (type: %s, digest: %s)", len(appData.Targets), appName, ociType, digest)
+
+		allNestedTargets = append(allNestedTargets, appData.Targets...)
+	}
+
+	return allNestedTargets, needsRequeue, activeAppNames, nil
+}
+
+// extractNestedTargetsForImage extracts nested OCI targets from a single image-based application.
+func (m *manager) extractNestedTargetsForImage(
+	ctx context.Context,
+	appSpec v1beta1.ApplicationProviderSpec,
+	imageSpec *v1beta1.ImageApplicationProviderSpec,
+	secret *client.PullSecret,
+) (*provider.AppData, error) {
+	return provider.ExtractNestedTargetsFromImage(
 		ctx,
 		m.log,
-		m.podmanClient,
+		m.podmanMonitor.client,
 		m.readWriter,
-		desired,
+		&appSpec,
+		imageSpec,
 		secret,
 	)
-	if err != nil {
-		return nil, false, nil, err
-	}
-
-	// Store AppData in appDataCache for reuse during Verify
-	for appName, appData := range appDataMap {
-		m.appDataCache[appName] = appData
-	}
-
-	return targets, needsRequeue, activeNames, nil
 }
