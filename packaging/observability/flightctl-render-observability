@@ -107,8 +107,6 @@ render_telemetry_gateway_config() {
             fi
             log "INFO" "OpenTelemetry collector configuration rendered successfully"
             
-            # Setup certificates for telemetry-gateway after configuration is rendered
-            setup_telemetry_gateway_certs
         else
             log "ERROR" "render-templates.sh not found"
             exit 1
@@ -118,39 +116,6 @@ render_telemetry_gateway_config() {
     fi
 }
 
-setup_telemetry_gateway_certs() {
-    log "INFO" "Setting up telemetry-gateway certificates..."
-    
-    # Check if certificate setup script exists
-    if [ -f "/etc/flightctl/scripts/setup_telemetry_gateway_certs.sh" ]; then
-        # Telemetry-gateway always uses Podman mode
-        local mode="podman"
-
-        log "INFO" "Running certificate setup in $mode mode..."
-
-        local sans="DNS:localhost,DNS:flightctl-telemetry-gateway,IP:127.0.0.1"
-        # Source the functions file to get get_ext_ip function
-        if [ -f "/etc/flightctl/scripts/functions" ]; then
-            source /etc/flightctl/scripts/functions
-            local ext_ip=$(get_ext_ip)
-            if [ -n "$ext_ip" ]; then
-                sans="${sans},DNS:telemetry.${ext_ip}.nip.io"
-            fi
-        fi
-
-        # Run the certificate setup script
-        if ! /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh --mode "$mode" \
-        --sans "$sans" --force-rotate  ; then
-            log "ERROR" "Certificate setup failed, aborting configuration rendering"
-            exit 1
-        else
-            log "INFO" "Telemetry-gateway certificates setup completed successfully"
-        fi
-    else
-        log "WARNING" "Certificate setup script not found at /etc/flightctl/scripts/setup_telemetry_gateway_certs.sh"
-        log "INFO" "Certificates will need to be set up manually"
-    fi
-}
 
 main() {
     log "INFO" "Starting Flight Control observability configuration rendering..."
@@ -188,9 +153,8 @@ DESCRIPTION:
     This script will:
     1. Check prerequisites based on installed components
     2. Render observability configuration templates (if full stack is installed)
-    3. Render OpenTelemetry collector configuration (if installed)
-    4. Setup telemetry-gateway certificates (if telemetry-gateway is installed)
-    5. Reload systemd daemon
+    3. Render telemetry gateway configuration (if installed)
+    4. Reload systemd daemon
 
     To start/stop services after rendering, use systemd targets:
     - flightctl-observability.target (full stack)
