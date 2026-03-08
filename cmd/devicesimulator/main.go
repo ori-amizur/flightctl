@@ -395,6 +395,7 @@ func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
 			ClientCertificate: filepath.Join(cfg.ConfigDir, agent_config.EnrollmentCertFile),
 			ClientKey:         filepath.Join(cfg.ConfigDir, agent_config.EnrollmentKeyFile),
 		}
+		cfg.EnrollmentService.Config.Organization = agentCfg.agentConfigTemplate.EnrollmentService.Config.Organization
 		cfg.SpecFetchInterval = agentCfg.agentConfigTemplate.SpecFetchInterval
 		cfg.StatusUpdateInterval = agentCfg.agentConfigTemplate.StatusUpdateInterval
 		cfg.TPM = agentCfg.agentConfigTemplate.TPM
